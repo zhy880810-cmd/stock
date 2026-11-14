@@ -101,6 +101,19 @@ dialog::backdrop{background:rgba(0,0,0,.5)}
 .idx b{display:block;font-size:15px}
 nav.tabs button{position:relative}
 nav.tabs button .cnt{position:absolute;top:4px;left:calc(50% + 6px);background:var(--danger);color:#fff;border-radius:9px;font-size:10px;min-width:16px;height:16px;line-height:16px;padding:0 4px}
+
+.composer{position:relative}
+.composer.drag{outline:2px dashed var(--accent);outline-offset:4px;background:var(--soft);border-radius:12px}
+.thumbs{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0 0}
+.thumbs:empty{display:none}
+.thumb-wrap{position:relative;width:72px;height:72px}
+.thumb-wrap img{width:72px;height:72px;object-fit:cover;border-radius:8px;border:1px solid var(--line);display:block;background:var(--bg)}
+.thumb-wrap button{position:absolute;top:-6px;right:-6px;min-height:22px;width:22px;padding:0;border-radius:11px;font-size:14px;line-height:20px;background:var(--card);color:var(--danger)}
+.msg .imgs{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 6px;max-width:94%}
+.msg.u .imgs{align-self:flex-end;justify-content:flex-end}
+.msg .imgs img{max-width:160px;max-height:120px;border-radius:8px;border:1px solid var(--line);object-fit:cover;cursor:pointer}
+#imgFile{display:none}
+.composer .hint{font-size:12px;color:var(--sub);margin-top:6px}
 @media(min-width:720px){.sum{grid-template-columns:repeat(4,1fr)}}
 </style>
 </head>
@@ -122,13 +135,19 @@ nav.tabs button .cnt{position:absolute;top:4px;left:calc(50% + 6px);background:v
       <div class="note" id="aiNote"></div>
       <div class="chatbox" id="chatbox"></div>
       <div class="chips" id="quick"></div>
-      <textarea id="chatIn" rows="3" placeholder="问点什么…（Ctrl/⌘+Enter 发送）"></textarea>
+      <div id="composer" class="composer">
+      <div class="thumbs" id="imgPreviews"></div>
+      <textarea id="chatIn" rows="3" placeholder="问点什么…（可粘贴或拖入图片，Ctrl/⌘+Enter 发送）"></textarea>
+      <input type="file" id="imgFile" accept="image/jpeg,image/png,image/webp,image/gif,.jpg,.jpeg,.png,.webp,.gif" multiple>
       <div class="row" style="margin-top:8px">
         <button class="sm" data-act="inject">📎 插入自选+持仓</button>
+        <button class="sm" data-act="attachImg">🖼 插入图片</button>
         <label class="row sub" style="gap:6px"><input type="checkbox" id="ctxAuto"> 每次自动附带</label>
         <span class="grow"></span>
         <button class="sm" data-act="chatClear">清空</button>
         <button class="pri" id="btnSend" data-act="send">发送</button>
+      </div>
+      <div class="hint">图片只存在本机浏览器的对话记录里，不会上传到 GitHub，也不会写入 data.json。网页直连 Gemini 等接口常因跨域失败，不影响云端雷达；连不上可改用 DeepSeek。</div>
       </div>
     </div>
   </section>
@@ -199,9 +218,77 @@ function merge(base, over){
   for(const k in over){ out[k] = (k in base && base[k] && typeof base[k]==='object' && !Array.isArray(base[k])) ? merge(base[k], over[k]) : over[k]; }
   return out;
 }
+function isQuotaErr(e){
+  return !!(e && (e.name==='QuotaExceededError' || e.name==='NS_ERROR_DOM_QUOTA_REACHED' || e.code===22 || e.code===1014));
+}
+function writeState(){ localStorage.setItem(LS, JSON.stringify(S)); localStorage.setItem(LSK, JSON.stringify(KEYS)); }
+function dropOldChatImages(keepLatestUser){
+  let n = 0; const msgs = S.ai.chat||[];
+  let keep = -1;
+  if(keepLatestUser){
+    for(let i=msgs.length-1;i>=0;i--){ if(msgs[i] && msgs[i].images && msgs[i].images.length){ keep = i; break; } }
+  }
+  for(let i=0;i<msgs.length;i++){
+    if(i!==keep && msgs[i] && msgs[i].images && msgs[i].images.length){ delete msgs[i].images; n++; }
+  }
+  return n;
+}
+function notifyChat(){ try{ if(typeof renderChat==='function') renderChat(); }catch(_){ } }
 function save(){
-  try{ localStorage.setItem(LS, JSON.stringify(S)); localStorage.setItem(LSK, JSON.stringify(KEYS)); }
-  catch(e){ toast('保存失败（存储空间不足？）'); }
+  try{ writeState(); }
+  catch(e){
+    if(!isQuotaErr(e)){ toast('保存失败'); return; }
+    const n = dropOldChatImages(true);
+    try{ writeState(); if(n){ toast('本地存储空间不足，已保留文字并去掉较早对话里的图片。'); notifyChat(); } }
+    catch(e2){
+      dropOldChatImages(false);
+      try{ writeState(); toast('本地存储空间不足，已去掉对话中的图片，文字仍保留。'); notifyChat(); }
+      catch(_){ toast('保存失败（存储空间不足？）'); }
+    }
+  }
+}
+async function shrinkChatImages(maxEdge, quality){
+  let n = 0;
+  for(const m of (S.ai.chat||[])){
+    if(!hasImages(m)) continue;
+    const next = [];
+    for(const im of m.images){
+      try{
+        const img = await loadImageEl(dataUrlOf(im));
+        let w = img.naturalWidth||img.width, h = img.naturalHeight||img.height;
+        if(!(w>0&&h>0)){ next.push(im); continue; }
+        const scale = Math.min(1, maxEdge/Math.max(w,h));
+        w = Math.max(1, Math.round(w*scale)); h = Math.max(1, Math.round(h*scale));
+        const canvas = document.createElement('canvas'); canvas.width=w; canvas.height=h;
+        const ctx = canvas.getContext('2d'); ctx.fillStyle='#fff'; ctx.fillRect(0,0,w,h); ctx.drawImage(img,0,0,w,h);
+        const url = canvas.toDataURL('image/jpeg', quality);
+        const data = url.slice(url.indexOf(',')+1);
+        if(data.length < String(im.data||'').length){ next.push({mime:'image/jpeg', data, name:im.name, w, h}); n++; }
+        else next.push(im);
+      }catch(_){ next.push(im); }
+    }
+    m.images = next;
+  }
+  return n;
+}
+async function persistState(){
+  try{ writeState(); return; }
+  catch(e){
+    if(!isQuotaErr(e)){ toast('保存失败'); return; }
+    try{
+      const shrunk = await shrinkChatImages(900, 0.7);
+      writeState();
+      if(shrunk){ toast('本地存储空间不足，已缩小对话里的图片。'); notifyChat(); }
+      return;
+    }catch(_){}
+    const n = dropOldChatImages(true);
+    try{ writeState(); if(n){ toast('本地存储空间不足，已保留文字并去掉较早对话里的图片。'); notifyChat(); } }
+    catch(e2){
+      dropOldChatImages(false);
+      try{ writeState(); toast('本地存储空间不足，已去掉对话中的图片，文字仍保留。'); notifyChat(); }
+      catch(_){ toast('保存失败（存储空间不足？）'); }
+    }
+  }
 }
 let toastT;
 function toast(msg, ms=2600){ const t=$('#toast'); t.textContent=msg; t.style.display='block'; clearTimeout(toastT); toastT=setTimeout(()=>t.style.display='none', ms); }
@@ -786,14 +873,153 @@ function contextText(){
 function aiConf(k){ const c = S.ai.providers[k]; return { key:(KEYS[k]||'').trim(), model:(c.model||'').trim()||PROVIDERS[k].model, base:(c.base||'').trim().replace(/\/+$/,'')||PROVIDERS[k].base, nothink:!!c.nothink }; }
 
 function netHint(k){
-  return k==='deepseek' ? '网络请求失败：请检查网络或 API 地址。' :
-    `网络请求失败：${PROVIDERS[k].name} 的接口在大陆通常需要能访问国际网络的环境（浏览器需走代理/VPN）；也可能是接口地址写错，或该服务暂不允许浏览器直接调用（CORS）。`;
+  if(k==='deepseek') return '网络请求失败：请检查网络或 API 地址。DeepSeek 在国内通常可直连。';
+  const name = PROVIDERS[k].name;
+  return '网页里的对话无法从浏览器直接连上 '+name+' 的接口（常见原因是跨域 CORS 限制，或当前网络访问不了该服务）。这不影响云端每天自动更新的雷达。可改用 DeepSeek（国内通常可直连），或换一家能连上的接口再试。云端静态网页没有同源代理，无法在浏览器里消除这个限制。';
 }
 async function readError(r){
   let t = ''; try{ t = await r.text(); }catch(_){}
   try{ const j = JSON.parse(t); const m = (j.error && (j.error.message||j.error)) || j.message || t; return `HTTP ${r.status}：${typeof m==='string'?m:JSON.stringify(m)}`; }
   catch(_){ return `HTTP ${r.status}：${t.slice(0,300)}`; }
 }
+
+const IMG_MAX = 4, IMG_EDGE = 1560, IMG_Q = 0.85;
+const IMG_OK = { 'image/jpeg':1,'image/jpg':1,'image/pjpeg':1,'image/png':1,'image/webp':1,'image/gif':1 };
+const DEFAULT_IMG_PROMPT = '请识别并说明这张图片里的内容。如果是行情或财报截图，请提炼关键数据和风险点。';
+let pendingImgs = [];
+
+function dataUrlOf(im){ return (!im)?'' : (im.data && im.mime ? ('data:'+im.mime+';base64,'+im.data) : (im.url||'')); }
+function hasImages(m){ return !!(m && Array.isArray(m.images) && m.images.length); }
+function supportsVision(k, model){
+  const m = String(model || (k && aiConf(k).model) || '').toLowerCase();
+  if(k==='gemini' || k==='openai' || k==='grok') return true;
+  if(k==='deepseek') return /flash|vision/.test(m);
+  return false;
+}
+function visionBlockReason(k){
+  const c = aiConf(k);
+  if(supportsVision(k, c.model)) return '';
+  if(k==='deepseek') return '当前模型「'+c.model+'」不支持识图。请到「设置」把模型改成 deepseek-flash（官方支持图片），或换用 Gemini / ChatGPT / Grok。';
+  return '当前所选的 '+PROVIDERS[k].name+' 模型不支持识图。请换一个支持图片的模型，或先去掉图片只发文字。';
+}
+function toOpenAIMessage(m){
+  const imgs = hasImages(m) ? m.images : [];
+  if(!imgs.length) return {role:m.role, content:m.content||''};
+  const parts = [];
+  if(m.content) parts.push({type:'text', text:m.content});
+  imgs.forEach(im => { const url = dataUrlOf(im); if(url) parts.push({type:'image_url', image_url:{url}}); });
+  if(!parts.length) parts.push({type:'text', text:m.content||''});
+  return {role:m.role, content:parts};
+}
+function toGeminiParts(m){
+  const parts = [];
+  if(m.content) parts.push({text:m.content});
+  (m.images||[]).forEach(im => { if(im && im.data) parts.push({inlineData:{mimeType: im.mime||'image/jpeg', data:im.data}}); });
+  if(!parts.length) parts.push({text:m.content||''});
+  return parts;
+}
+function historyForApi(msgs){
+  let left = 4; const out = [];
+  for(let i=msgs.length-1;i>=0;i--){
+    const m = msgs[i];
+    if(hasImages(m)){
+      if(left>0){ out.push(m); left--; }
+      else out.push({role:m.role, content:m.content||'（图片已省略，以节省请求体积）'});
+    } else out.push(m);
+  }
+  return out.reverse();
+}
+function looksLikeImageFile(f){
+  const typ = (f.type||'').toLowerCase();
+  if(IMG_OK[typ]) return true;
+  return /\.(jpe?g|png|webp|gif)$/i.test(f.name||'');
+}
+function blobToB64(blob){
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => { const s = String(r.result||''); const i = s.indexOf(','); resolve(i>=0?s.slice(i+1):s); };
+    r.onerror = () => reject(new Error('读取失败'));
+    r.readAsDataURL(blob);
+  });
+}
+function loadImageEl(src){
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error('无法读取图片'));
+    img.src = src;
+  });
+}
+async function compressImage(file, maxEdge, quality){
+  if(maxEdge==null) maxEdge = IMG_EDGE;
+  if(quality==null) quality = IMG_Q;
+  if(!file || !looksLikeImageFile(file)) throw new Error('仅支持 jpg、png、webp、gif 图片');
+  const obj = URL.createObjectURL(file);
+  let img;
+  try{ img = await loadImageEl(obj); }
+  finally{ URL.revokeObjectURL(obj); }
+  let w = img.naturalWidth || img.width, h = img.naturalHeight || img.height;
+  if(!(w>0 && h>0)) throw new Error('无法读取图片尺寸');
+  const scale = Math.min(1, maxEdge / Math.max(w,h));
+  w = Math.max(1, Math.round(w*scale));
+  h = Math.max(1, Math.round(h*scale));
+  const canvas = document.createElement('canvas');
+  canvas.width = w; canvas.height = h;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(0,0,w,h);
+  ctx.drawImage(img, 0, 0, w, h);
+  const blob = await new Promise((res, rej) => canvas.toBlob(b => b?res(b):rej(new Error('压缩失败')), 'image/jpeg', quality));
+  const data = await blobToB64(blob);
+  const base = String(file.name||'image').replace(/\.[^.]+$/,'') || 'image';
+  return { mime:'image/jpeg', data, name: base+'.jpg', w, h };
+}
+function renderThumbs(){
+  const el = $('#imgPreviews'); if(!el) return;
+  el.innerHTML = pendingImgs.map((im,i) => '<div class="thumb-wrap"><img src="'+esc(dataUrlOf(im))+'" alt="'+esc(im.name||'图片')+'"><button type="button" aria-label="移除图片" data-act="rmImg" data-i="'+i+'">×</button></div>').join('');
+}
+async function addImageFiles(files){
+  const list = [...(files||[])].filter(Boolean);
+  if(!list.length) return;
+  for(const f of list){
+    if(pendingImgs.length >= IMG_MAX){ toast('每条消息最多附 4 张图片'); break; }
+    try{
+      if((f.type||'').toLowerCase()==='image/gif') toast('动图将按第一帧发送');
+      const im = await compressImage(f);
+      pendingImgs.push(im);
+      renderThumbs();
+    }catch(e){ toast(e.message||'图片处理失败'); }
+  }
+}
+function renderMsgImgs(m){
+  if(!hasImages(m)) return '';
+  return '<div class="imgs">'+m.images.map(im => '<img src="'+esc(dataUrlOf(im))+'" alt="'+esc(im.name||'图片')+'" data-act="viewImg">').join('')+'</div>';
+}
+function bindComposer(){
+  const composer = $('#composer'), inp = $('#chatIn'), file = $('#imgFile');
+  if(!composer || composer._bound) return;
+  composer._bound = true;
+  const paste = e => {
+    const cd = e.clipboardData; if(!cd) return;
+    const files = [];
+    if(cd.files && cd.files.length){ for(const f of cd.files){ if(looksLikeImageFile(f)) files.push(f); } }
+    if(!files.length && cd.items){ for(const it of cd.items){ if(it.type && it.type.startsWith('image/')){ const f = it.getAsFile(); if(f) files.push(f); } } }
+    if(files.length){ e.preventDefault(); addImageFiles(files); }
+  };
+  composer.addEventListener('paste', paste);
+  if(inp) inp.addEventListener('paste', paste);
+  composer.addEventListener('dragover', e => {
+    if(e.dataTransfer && [...(e.dataTransfer.types||[])].includes('Files')){ e.preventDefault(); composer.classList.add('drag'); }
+  });
+  composer.addEventListener('dragleave', e => { if(!composer.contains(e.relatedTarget)) composer.classList.remove('drag'); });
+  composer.addEventListener('drop', e => {
+    composer.classList.remove('drag');
+    const files = [...((e.dataTransfer && e.dataTransfer.files)||[])].filter(looksLikeImageFile);
+    if(files.length){ e.preventDefault(); addImageFiles(files); }
+  });
+  if(file) file.addEventListener('change', e => { addImageFiles(e.target.files); e.target.value=''; });
+}
+
 /* 通用流式调用：onDelta(text)；返回完整文本 */
 async function callAI(k, messages, system, onDelta, signal){
   const c = aiConf(k), P = PROVIDERS[k];
@@ -802,12 +1028,12 @@ async function callAI(k, messages, system, onDelta, signal){
   if(P.kind==='openai'){
     url = c.base + '/chat/completions';
     headers = {'Content-Type':'application/json','Authorization':'Bearer '+c.key};
-    body = { model:c.model, stream:true, messages:[{role:'system',content:system}, ...messages.map(m=>({role:m.role,content:m.content}))] };
+    body = { model:c.model, stream:true, messages:[{role:'system',content:system}, ...messages.map(toOpenAIMessage)] };
     if(k==='deepseek' && c.nothink) body.thinking = {type:'disabled'};
   } else {
     url = `${c.base}/models/${encodeURIComponent(c.model)}:streamGenerateContent?alt=sse`;
     headers = {'Content-Type':'application/json','x-goog-api-key':c.key};
-    body = { systemInstruction:{parts:[{text:system}]}, contents: messages.map(m=>({role:m.role==='assistant'?'model':'user', parts:[{text:m.content}]})) };
+    body = { systemInstruction:{parts:[{text:system}]}, contents: messages.map(m=>({role:m.role==='assistant'?'model':'user', parts:toGeminiParts(m)})) };
   }
   let r;
   try{ r = await fetch(url,{method:'POST',headers,body:JSON.stringify(body),signal}); }
@@ -843,27 +1069,33 @@ function extractText(k, j, delta){
 let chatAbort = null;
 function renderChat(){
   const box = $('#chatbox'); const msgs = S.ai.chat;
-  box.innerHTML = msgs.length ? msgs.map(m => `<div class="msg ${m.role==='user'?'u':'a'}"><span class="who">${m.role==='user'?'我':esc(m.who||'AI')}</span><div class="b ${m.role==='user'?'':'md'}">${m.role==='user'?esc(m.content):markdown(m.content)}</div></div>`).join('')
-    : '<div class="empty">选一个 AI，输入问题。点“插入自选+持仓”可让 AI 看到你的当前数据。</div>';
+  box.innerHTML = msgs.length ? msgs.map(m => `<div class="msg ${m.role==='user'?'u':'a'}"><span class="who">${m.role==='user'?'我':esc(m.who||'AI')}</span>${renderMsgImgs(m)}<div class="b ${m.role==='user'?'':'md'}">${m.role==='user'?esc(m.content):markdown(m.content)}</div></div>`).join('')
+    : '<div class="empty">选一个 AI，输入问题。可点“插入自选+持仓”，或点“插入图片”/粘贴/拖入截图让 AI 识图。</div>';
   box.scrollTop = box.scrollHeight;
 }
 function renderAIHead(){
   $('#aiSeg').innerHTML = Object.entries(PROVIDERS).map(([k,p]) => `<button class="${S.ai.provider===k?'on':''}" data-prov="${k}">${p.name}</button>`).join('');
   const k = S.ai.provider, c = aiConf(k);
-  $('#aiNote').innerHTML = `${esc(PROVIDERS[k].note)} 当前模型：<b>${esc(c.model)}</b>${c.key?'':' · <span style="color:var(--danger)">未填写密钥，请到「设置」填写</span>'}`;
+  const visionNote = supportsVision(k,c.model)?'':' · <span style="color:var(--warn)">当前模型不支持识图，插入图片前请改成 '+(k==='deepseek'?'deepseek-flash':'支持图片的模型')+'</span>';
+  $('#aiNote').innerHTML = `${esc(PROVIDERS[k].note)} 当前模型：<b>${esc(c.model)}</b>${c.key?'':' · <span style="color:var(--danger)">未填写密钥，请到「设置」填写</span>'}${visionNote}`;
   $('#quick').innerHTML = QUICK.map((q,i)=>`<button class="chip" data-q="${i}">${esc(q[0])}</button>`).join('');
   $('#ctxAuto').checked = !!S.ai.ctxAuto;
 }
 async function sendChat(){
-  const inp = $('#chatIn'); const text = inp.value.trim();
+  const inp = $('#chatIn'); const text0 = inp.value.trim();
   if(chatAbort){ chatAbort.abort(); return; }
-  if(!text) return;
+  const hasImg = pendingImgs.length>0;
+  if(!text0 && !hasImg) return;
   const k = S.ai.provider;
-  S.ai.chat.push({role:'user', content:text}); inp.value = '';
+  if(hasImg){ const why = visionBlockReason(k); if(why){ toast(why, 5600); return; } }
+  const text = text0 || DEFAULT_IMG_PROMPT;
+  const images = pendingImgs.slice(); pendingImgs = []; renderThumbs();
+  const umsg = {role:'user', content:text}; if(images.length) umsg.images = images;
+  S.ai.chat.push(umsg); inp.value = '';
   const amsg = {role:'assistant', content:'', who:PROVIDERS[k].name+' · '+aiConf(k).model};
   S.ai.chat.push(amsg); renderChat();
   const btn = $('#btnSend'); btn.textContent = '停止'; chatAbort = new AbortController();
-  const history = S.ai.chat.slice(0,-1).slice(-20).filter(m=>m.content);
+  const history = historyForApi(S.ai.chat.slice(0,-1).slice(-20).filter(m => (m.content && String(m.content).trim()) || hasImages(m)));
   let system = S.ai.system || DEFAULT_SYSTEM;
   if(S.ai.ctxAuto) system += '\n\n以下是用户当前的自选、持仓与事件数据（来自其本地应用）：\n' + contextText();
   let lastRender = 0;
@@ -874,7 +1106,7 @@ async function sendChat(){
     else amsg.content = (amsg.content?amsg.content+'\n\n':'') + '⚠️ ' + e.message;
   }
   chatAbort = null; btn.textContent = '发送';
-  S.ai.chat = S.ai.chat.slice(-60); save(); renderChat();
+  S.ai.chat = S.ai.chat.slice(-60); await persistState(); renderChat();
 }
 
 /* ============ 对话框 ============ */
@@ -1002,8 +1234,11 @@ const ACTIONS = {
     S.settings.notify = p==='granted'; save(); renderCal(); toast(p==='granted'?'已开启（页面保持打开时有效）':'未获得通知权限，将只显示页面内提醒');
   },
   inject: () => { const inp = $('#chatIn'); inp.value = (inp.value?inp.value+'\n\n':'') + '以下是我当前的数据：\n' + contextText() + '\n\n'; inp.focus(); },
+  attachImg: () => { const f = $('#imgFile'); if(f) f.click(); },
+  rmImg: a => { const i = +a.dataset.i; if(Number.isInteger(i) && i>=0){ pendingImgs.splice(i,1); renderThumbs(); } },
+  viewImg: a => { if(a && a.src) openDlg('图片', '<img src="'+esc(a.src)+'" alt="" style="width:100%;border-radius:8px">', ''); },
   send: () => sendChat(),
-  chatClear: () => { if(!S.ai.chat.length || confirm('清空对话记录？')){ S.ai.chat = []; save(); renderChat(); } },
+  chatClear: () => { if(!S.ai.chat.length || confirm('清空对话记录？')){ S.ai.chat = []; pendingImgs = []; renderThumbs(); save(); renderChat(); } },
   eye: a => { const i = $(`input[data-k="${a.dataset.k}"][data-f=key]`); i.type = i.type==='password'?'text':'password'; a.textContent = i.type==='password'?'显示':'隐藏'; },
   aiTest: async a => {
     const k = a.dataset.k, out = $('#test-'+k); out.textContent = '测试中…'; out.style.color = '';
@@ -1082,6 +1317,7 @@ function applyProviderField(t){
 }
 function load_post(){ for(const k in PROVIDERS){ S.ai.providers[k] = Object.assign({model:PROVIDERS[k].model, base:PROVIDERS[k].base, nothink:false}, S.ai.providers[k]||{}); } }
 $('#chatIn').addEventListener('keydown', e => { if(e.key==='Enter' && (e.ctrlKey||e.metaKey)){ e.preventDefault(); sendChat(); } });
+bindComposer();
 
 let timer;
 function setupTimer(){
@@ -1095,7 +1331,7 @@ document.addEventListener('visibilitychange', () => { if(document.visibilityStat
 load(); applyTheme(); renderAll(); showTab('radar'); renderChat(); setupTimer(); loadCloud(true);
 setInterval(checkReminders, 30000); checkReminders();
 if(allKeys().length) refreshQuotes(true); else refreshFX().then(()=>{save(); renderHold();});
-window.__app = { get S(){return S;}, get CLOUD(){return CLOUD;}, get CP(){return CP;}, cloudKey, loadCloud, computeAlerts, renderRadar, normalize, priceOf, computePortfolio, markdown, contextText, refreshQuotes, callAI, smartSearch };
+window.__app = { get S(){return S;}, get CLOUD(){return CLOUD;}, get CP(){return CP;}, cloudKey, loadCloud, computeAlerts, renderRadar, normalize, priceOf, computePortfolio, markdown, contextText, refreshQuotes, callAI, smartSearch, supportsVision, toOpenAIMessage, toGeminiParts, dataUrlOf, historyForApi, hasImages, DEFAULT_IMG_PROMPT, compressImage, get pendingImgs(){return pendingImgs;} };
 </script>
 </body>
 </html>
