@@ -3,8 +3,10 @@
 """每日更新脚本：拉行情 + 汇率 + 让 AI 联网生成中文「每日雷达 / 交易计划」，写入 data.json。
 
 - 不含任何持仓数量/成本/金额（隐私默认）。公开文件只写代码、价格、买点缺口和新闻。
-- 买点表、定投收盘价、距买点跌幅、标普 500 涨跌幅均由 yfinance 等行情接口计算，不由模型编造。
-- AI（Grok / Gemini）只负责：隔夜综述、自选消息、涨跌榜原因、1–3 条大新闻（各附一个链接）、可选换股提议。
+- 买点表、定投收盘价、距买点跌幅、标普 500 涨跌幅、止损/止盈/补充批次（技术参考：ATR + 近期高低点）均在本地计算，不由模型编造。
+- AI（Grok / Gemini）整个脚本只调用一次，只负责：标普 500 涨跌榜每只一句原因、1–3 条大新闻（各附一个链接）、至多一条明显更好的机会（只给代码和理由，价格仍由本地算）。
+- 明显更好的机会会由脚本直接自动替换计划里被点名的标的（无需用户确认）：当前计划写在 data.json 的 plan.active（只有代码、买点、名称），config.json 只是首次的种子；替换记录写在 plan.swap_log。被换出的标的进入 plan.retired（网页上只在你标记已买入/持仓里有它时继续显示止损止盈）。
+- 若设置了 SERVERCHAN_KEY，每次运行后推送一条简短中文摘要到微信（不含任何持仓金额）。
 - AI 失败不影响行情：保留价格，并在 data.json 里写入错误说明。
 - 仅供学习与记录参考，不构成投资建议。
 
@@ -13,7 +15,7 @@
   GEMINI_API_KEY   / GEMINI_MODEL（默认 gemini-3.8-flash）
   XAI_API_KEY      / XAI_MODEL（默认 grok-4.7）/ XAI_BASE_URL（默认 https://api.x.ai/v1）
   SERVERCHAN_KEY   可选，Server酱推送（不含金额）
-  PAGES_URL        可选，推送里附带的网页地址
+  PAGES_URL        可选，推送里附带的网页地址（默认 https://stock-6d3.pages.dev）
 """
 import argparse
 import csv
@@ -50,6 +52,16 @@ PLAN_SPECS = [
     {"symbol": "SOXL", "yf": "SOXL", "name": "半导体3倍做多", "levels": [47, 41], "kind": "levered"},
     {"symbol": "KORU", "yf": "KORU", "name": "韩国3倍做多", "levels": [7, 6.5], "kind": "levered"},
 ]
+SEED_SPECS = [dict(s) for s in PLAN_SPECS]   # 首次种子；之后以 data.json 的 plan.active 为准
+RETIRED_SPECS = []                          # 已被换出的标的（页面只在你持有/标记已买入时显示）
+SWAP_LOG = []                               # 自动替换记录
+DROPPED = []                                # 已被换出、不再回到自选的代码
+DEFAULT_PAGES_URL = "https://stock-6d3.pages.dev"
+LEVERED_RE = re.compile(r"^(TQQQ|SQQQ|UPRO|SPXU|SOXL|SOXS|TNA|TZA|TECL|TECS|QLD|QID|SSO|SDS|UDOW|SDOW|TMF|TMV|LABU|LABD|FAS|FAZ|NUGT|DUST|JNUG|JDST|BOIL|KOLD|UVXY|SVXY|VXX|VIXY|SPXL|SPXS|TARK|CURE|DFEN|DUSL|NAIL|RETL|CWEB|YINN|YANG|FNGU|FNGD|BULZ|BERZ|AGQ|ZSL|UCO|SCO|GUSH|DRIP|TSLL|TSLQ|NVDL|NVDX|CONL|MSFU|GGLL|AAPU|AMDL|AMZU|BITX|ETHU|MSTU|MSTX|KORU|KORD)$", re.I)
+SWAP_COOLDOWN_DAYS = 5      # 刚换进来的标的 5 天内不再被换
+SWAP_NO_FLIPBACK_DAYS = 14  # 刚换出的标的 14 天内不换回
+SWAP_MAX_PER_14D = 3
+RETIRED_KEEP_DAYS = 180
 DCA_SPECS = [
     {"symbol": "QQQM", "yf": "QQQM", "name": "纳指100 ETF"},
     {"symbol": "SCHD", "yf": "SCHD", "name": "美国红利 ETF"},
@@ -167,13 +179,14 @@ def _attach_extended(t, rec):
 
 
 def _attach_range(t, rec):
-    """附带近一年 / 近三个月高低，供模型判断支撑阻力，不直接当作止盈止损。"""
+    """附带近一年/三个月/20 日高低和 ATR14，用于本地计算技术参考（不调用模型）。"""
     try:
+        import pandas as pd
         h = t.history(period="1y", auto_adjust=False)
         if h is None or h.empty:
             return rec
-        need = [c for c in ("High", "Low") if c in h.columns]
-        if len(need) < 2:
+        need = [c for c in ("High", "Low", "Close") if c in h.columns]
+        if len(need) < 3:
             return rec
         h = h.dropna(subset=need)
         if not len(h):
@@ -184,6 +197,14 @@ def _attach_range(t, rec):
         last = h.tail(63)
         rec["high_3m"] = round(float(last["High"].max()), 4)
         rec["low_3m"] = round(float(last["Low"].min()), 4)
+        l20 = h.tail(20)
+        rec["high_20d"] = round(float(l20["High"].max()), 4)
+        rec["low_20d"] = round(float(l20["Low"].min()), 4)
+        prev = h["Close"].shift(1)
+        tr = pd.concat([h["High"] - h["Low"], (h["High"] - prev).abs(), (h["Low"] - prev).abs()], axis=1).max(axis=1)
+        atr = tr.tail(14).mean()
+        if atr == atr and atr > 0:
+            rec["atr14"] = round(float(atr), 4)
     except Exception:  # noqa: BLE001
         return rec
     return rec
@@ -315,22 +336,24 @@ def fetch_sp500_movers(prev_plan):
     disp_of = {c["yf"]: c["symbol"] for c in cons}
     frames = None
     last_err = None
-    # 分批下载，降低一次请求过大导致的失败概率
+
+    def dl(batch):
+        d = yf.download(batch, period="5d", interval="1d", group_by="ticker",
+                        auto_adjust=False, threads=True, progress=False, timeout=60)
+        if d is None or d.empty:
+            raise RuntimeError("没有返回数据")
+        return d
+
     try:
-        def go():
-            parts = []
-            for i in range(0, len(yf_list), 80):
-                batch = yf_list[i:i + 80]
-                d = yf.download(
-                    batch, period="10d", interval="1d", group_by="ticker",
-                    auto_adjust=False, threads=True, progress=False, timeout=60,
-                )
-                if d is None or d.empty:
-                    raise RuntimeError(f"批次 {i // 80 + 1} 没有返回数据")
-                parts.append((batch, d))
-                time.sleep(0.4)
-            return parts
-        frames = retry(go, tries=2, delay=8, what="下载标普500日线")
+        # 先整批一次下载（最快）；失败再回退到每 100 只一批
+        try:
+            frames = [(yf_list, dl(yf_list))]
+        except Exception as e1:  # noqa: BLE001
+            warn(f"标普500整批下载失败（{e1}），改为分批")
+            frames = []
+            for i in range(0, len(yf_list), 100):
+                b = yf_list[i:i + 100]
+                frames.append((b, retry(lambda b=b: dl(b), tries=2, delay=5, what="下载标普500分批")))
     except Exception as e:  # noqa: BLE001
         last_err = str(e)[:200]
         warn(f"标普500日线下载失败：{e}")
@@ -401,6 +424,155 @@ def fetch_sp500_movers(prev_plan):
 
 
 # ------------------------------------------------------------------ 买点表
+def _canon(s):
+    u = str(s or "").strip().upper()
+    return "BRK.B" if u in ("BRK-B", "BRKB", "BRK/B") else u
+
+
+def _pos_levels(v):
+    out = []
+    for x in v or []:
+        try:
+            n = float(x)
+        except (TypeError, ValueError):
+            continue
+        if n > 0:
+            out.append(n)
+    return out
+
+
+def _days_between(a, b):
+    try:
+        return (datetime.strptime(b, "%Y-%m-%d") - datetime.strptime(a, "%Y-%m-%d")).days
+    except Exception:  # noqa: BLE001
+        return 9999
+
+
+def init_plan_state(prev_plan, today):
+    """从上次 data.json 的 plan 里恢复当前计划；没有就用种子。只含代码、买点、名称。"""
+    seed = {_canon(s["symbol"]): s for s in SEED_SPECS}
+    dropped = []
+    for x in (prev_plan or {}).get("dropped") or []:
+        c = _canon(x)
+        if c and c not in dropped:
+            dropped.append(c)
+    active, seen = [], set()
+    prev_active = (prev_plan or {}).get("active") or []
+    for e in prev_active:
+        if not isinstance(e, dict) or not e.get("symbol") or not e.get("yf"):
+            continue
+        sym = _canon(e["symbol"])
+        if sym in seen or sym in dropped:
+            continue
+        if sym in seed and not e.get("from"):
+            spec = dict(seed[sym])  # 种子标的用代码里最新的梯子
+        else:
+            lv = _pos_levels(e.get("levels"))
+            if not lv:
+                continue
+            kind = e.get("kind") if e.get("kind") in ("stock", "levered", "nvda", "brk") else "stock"
+            spec = {"symbol": sym, "yf": str(e["yf"]).upper(), "name": _s(e.get("name"), 60) or sym, "levels": lv,
+                    "kind": kind, "added": e.get("added") or "", "from": _canon(e.get("from")), "why": _s(e.get("why"), 300)}
+        active.append(spec)
+        seen.add(sym)
+    if not active:
+        active = [dict(s) for s in SEED_SPECS if _canon(s["symbol"]) not in dropped]
+    else:
+        for sym, s in seed.items():
+            if sym not in seen and sym not in dropped:
+                active.append(dict(s))
+    retired = []
+    for e in (prev_plan or {}).get("retired") or []:
+        if not isinstance(e, dict) or not e.get("symbol") or not e.get("yf"):
+            continue
+        lv = _pos_levels(e.get("levels"))
+        if not lv or _days_between(e.get("retired_on") or today, today) > RETIRED_KEEP_DAYS:
+            continue
+        kind = e.get("kind") if e.get("kind") in ("stock", "levered", "nvda", "brk") else "stock"
+        retired.append({"symbol": _canon(e["symbol"]), "yf": str(e["yf"]).upper(), "name": _s(e.get("name"), 60) or e["symbol"],
+                        "levels": lv, "kind": kind, "retired_on": e.get("retired_on") or today,
+                        "replaced_by": _canon(e.get("replaced_by"))})
+    log_ = [e for e in ((prev_plan or {}).get("swap_log") or []) if isinstance(e, dict) and e.get("in") and e.get("out")]
+    PLAN_SPECS[:] = active
+    RETIRED_SPECS[:] = retired[-8:]
+    DROPPED[:] = dropped
+    SWAP_LOG[:] = log_[-20:]
+
+
+def effective_watchlist(base):
+    """config.json 是种子；被换出的代码从自选里去掉，换进来的加上。"""
+    out = []
+    for s in base:
+        if _canon(s) in DROPPED:
+            continue
+        if s not in out:
+            out.append(s)
+    have = {_canon(s) for s in out}
+    for sp in PLAN_SPECS:
+        if _canon(sp["symbol"]) not in have:
+            out.append(sp["yf"])
+    return out
+
+
+def apply_auto_swap(opp, today, prices, errors):
+    """Grok 点名一个明显更好的机会：直接替换计划里被点名的标的（不需要用户确认）。
+    买点梯子和止盈止损由本地按历史价格计算。返回替换记录，没有替换返回 None。"""
+    if not opp or not opp.get("ticker"):
+        return None
+    tk, vs = _canon(opp["ticker"]), _canon(opp.get("vs"))
+    if not vs:
+        log("  机会没有指明要替换的现有标的，忽略。")
+        return None
+    idx = next((i for i, s in enumerate(PLAN_SPECS) if _canon(s["symbol"]) == vs), None)
+    if idx is None:
+        log(f"  机会要替换的 {vs} 不在当前计划里，忽略。")
+        return None
+    if not re.match(r"^[A-Z]{1,5}(\.[A-Z])?$", tk) or any(_canon(s["symbol"]) == tk for s in PLAN_SPECS) \
+            or tk in {_canon(s["symbol"]) for s in DCA_SPECS}:
+        log(f"  机会代码 {tk} 不适用，忽略。")
+        return None
+    recent = [e for e in SWAP_LOG if _days_between(e.get("date") or "2000-01-01", today) <= SWAP_NO_FLIPBACK_DAYS]
+    if len(recent) >= SWAP_MAX_PER_14D:
+        log("  近 14 天自动替换已达上限，今天不换。")
+        return None
+    if any(_canon(e.get("out")) == tk for e in recent):
+        log(f"  {tk} 刚被换出，不换回。")
+        return None
+    out_spec = PLAN_SPECS[idx]
+    if out_spec.get("added") and _days_between(out_spec["added"], today) < SWAP_COOLDOWN_DAYS:
+        log(f"  {vs} 刚加入计划不到 {SWAP_COOLDOWN_DAYS} 天，不换。")
+        return None
+    yf_sym = tk.replace(".", "-")
+    try:
+        rec = fetch_one(yf_sym, want_extended=True)
+    except Exception as e:  # noqa: BLE001
+        warn(f"自动替换：{tk} 行情获取失败，不替换：{e}")
+        return None
+    price = rec.get("price")
+    tech = compute_tech_levels(price, [], rec)
+    if not tech:
+        return None
+    levels = sorted(set([_px(price)] + tech["extra_tranches"]), reverse=True)
+    why = _s(opp.get("why"), 200)
+    new_spec = {"symbol": tk, "yf": yf_sym, "name": _s(opp.get("name"), 60) or tk, "levels": levels,
+                "kind": "levered" if LEVERED_RE.match(tk) else "stock", "added": today, "from": vs, "why": why}
+    PLAN_SPECS[idx] = new_spec
+    RETIRED_SPECS[:] = [r for r in RETIRED_SPECS if _canon(r["symbol"]) != vs]
+    RETIRED_SPECS.append({"symbol": vs, "yf": out_spec["yf"], "name": out_spec.get("name") or vs,
+                          "levels": list(out_spec["levels"]), "kind": out_spec.get("kind") or "stock",
+                          "retired_on": today, "replaced_by": tk})
+    del RETIRED_SPECS[:-8]
+    if vs not in DROPPED:
+        DROPPED.append(vs)
+    entry = {"date": today, "out": vs, "in": tk, "in_name": new_spec["name"], "reason": why, "url": _http_url(opp.get("url"))}
+    SWAP_LOG.append(entry)
+    del SWAP_LOG[:-20]
+    prices[tk] = rec
+    prices[yf_sym] = rec
+    log(f"  已自动替换：{vs} → {tk}（买点 {levels}）")
+    return entry
+
+
 def nvda_watch_only(session_date):
     """财报日（含）开盘前只看不买：已有 2026-11-18 收盘/盘后的那次简报才启用买点。"""
     return (not session_date) or session_date < NVDA_EARNINGS
@@ -482,6 +654,12 @@ def build_buy_row(spec, rec, err, prev_row, session_hint, beijing_date):
         "low_52w": _r((rec or {}).get("low_52w")),
         "high_3m": _r((rec or {}).get("high_3m")),
         "low_3m": _r((rec or {}).get("low_3m")),
+        "high_20d": _r((rec or {}).get("high_20d")),
+        "low_20d": _r((rec or {}).get("low_20d")),
+        "atr14": _r((rec or {}).get("atr14")),
+        "swapped_in": bool(spec.get("from")),
+        "swap_from": spec.get("from") or "",
+        "added": spec.get("added") or "",
         "extra_tranches": [],
         "tranche_levels": list(levels),
         "ref_sl": None,
@@ -499,6 +677,74 @@ def _near(a, b, tol=0.008):
         return False
 
 
+def _px(x):
+    return round(float(x), 2) if abs(float(x)) >= 1 else round(float(x), 3)
+
+
+def compute_tech_levels(price, levels, st):
+    """本地用历史价格算技术参考：止损、止盈、补充批次。不调用模型，不是新闻判断。
+    st 需包含 atr14、low_3m/high_3m、low_20d、low_52w/high_52w（缺哪项就少用哪项）。"""
+    try:
+        price = float(price)
+    except (TypeError, ValueError):
+        return None
+    if not price > 0:
+        return None
+    atr = (st or {}).get("atr14")
+    try:
+        atr = float(atr) if atr and float(atr) > 0 else price * 0.04
+    except (TypeError, ValueError):
+        atr = price * 0.04
+    core = sorted([float(x) for x in (levels or []) if x and float(x) > 0], reverse=True)
+    extras = []
+    if not core:
+        # 没有既定梯子（例如新机会）：用现价和 1、2 倍 ATR 下方作为参考批次
+        core = [price]
+        extras = [price - atr, price - 2 * atr]
+    low_core, high_core = min(core + extras), max(core)
+    avg_core = sum(core + extras) / len(core + extras)
+    sl = low_core - (1.5 if extras else 1.5) * atr
+    l3, h3 = (st or {}).get("low_3m"), (st or {}).get("high_3m")
+    l20 = (st or {}).get("low_20d")
+    for sw in (l3, l20):
+        try:
+            if sw and 0 < float(sw) < low_core:
+                sl = min(sl, float(sw) - 0.5 * atr)
+        except (TypeError, ValueError):
+            pass
+    tp = avg_core + 3 * atr
+    try:
+        if h3 and float(h3) > avg_core * 1.05:
+            tp = max(avg_core + 2 * atr, min(float(h3), avg_core + 6 * atr))
+    except (TypeError, ValueError):
+        pass
+    tp = max(tp, high_core * 1.03)
+    if not extras:
+        e1 = low_core - atr
+        cand = [e1]
+        try:
+            if l3 and 0 < float(l3) < low_core - 0.3 * atr:
+                cand.append(float(l3))
+        except (TypeError, ValueError):
+            pass
+        for c in sorted(set(round(c, 4) for c in cand), reverse=True)[:2]:
+            if c > sl + 0.3 * atr and not any(_near(c, k) for k in core):
+                extras.append(c)
+    sl = max(sl, 0.01)
+    f = lambda v: (f"{v:.2f}" if v is not None else "—")
+    reason = (f"技术参考（本地按历史价格计算，非 AI/新闻）：ATR14≈{f(atr)}；近三月低/高 {f(l3)}/{f(h3)}；"
+              f"近一年低/高 {f((st or {}).get('low_52w'))}/{f((st or {}).get('high_52w'))}。"
+              f"止损=最深买点下约 1.5 倍 ATR（并避开近期低点），止盈=阶梯均价上方阻力或约 3 倍 ATR。")
+    return {
+        "stop_loss": _px(sl),
+        "take_profit": _px(tp),
+        "extra_tranches": [_px(x) for x in extras],
+        "reason": reason[:300],
+        "url": "",
+        "source": "technical",
+    }
+
+
 def _merge_level_advice(row, ai_bits, prev_row):
     """把模型给出的参考止盈止损、补充批次并入买点行；不覆盖用户既定核心梯子。失败时沿用上次参考价。"""
     advice = (ai_bits or {}).get("levels_advice") or {}
@@ -510,6 +756,7 @@ def _merge_level_advice(row, ai_bits, prev_row):
             "extra_tranches": prev_row.get("extra_tranches") or [],
             "reason": prev_row.get("sl_tp_reason") or "",
             "url": prev_row.get("sl_tp_url") or "",
+            "source": prev_row.get("sl_tp_source") or "",
             "stale": True,
         }
     if not a:
@@ -522,6 +769,7 @@ def _merge_level_advice(row, ai_bits, prev_row):
         row["ref_tp"] = _r(tp, 4)
     row["sl_tp_reason"] = (a.get("reason") or "")[:300]
     row["sl_tp_url"] = a.get("url") or ""
+    row["sl_tp_source"] = a.get("source") or row.get("sl_tp_source") or "technical"
     row["sl_tp_stale"] = bool(a.get("stale"))
     core = list(row.get("levels") or [])
     extras = []
@@ -577,7 +825,25 @@ def build_plan(prices, errors, prev_plan, beijing_date, movers, ai_bits, stale_a
         if rec and rec.get("date"):
             session = session or rec["date"]
         rows.append(build_buy_row(spec, rec, err, prev_rows.get(spec["symbol"]), session, beijing_date))
+    retired_rows = []
+    prev_ret = {r.get("symbol"): r for r in (prev_plan or {}).get("retired_table") or [] if isinstance(r, dict)}
+    for spec in RETIRED_SPECS:
+        rec = prices.get(spec["symbol"]) or prices.get(spec["yf"])
+        err = errors.get(spec["symbol"]) or errors.get(spec["yf"])
+        r = build_buy_row(spec, rec, err, None, session, beijing_date)
+        r.update({"retired": True, "at_buy": False, "newly_touched": [], "retired_on": spec.get("retired_on"),
+                  "replaced_by": spec.get("replaced_by") or ""})
+        retired_rows.append(r)
+    adv = dict((ai_bits or {}).get("levels_advice") or {})
+    for r in rows + retired_rows:
+        if r["symbol"] in adv or not r.get("price"):
+            continue
+        tech = compute_tech_levels(r["price"], r.get("levels"), r)
+        if tech:
+            adv[r["symbol"]] = tech
+    ai_bits = dict(ai_bits or {}, levels_advice=adv)
     rows = [_merge_level_advice(r, ai_bits, prev_rows.get(r["symbol"])) for r in rows]
+    retired_rows = [_merge_level_advice(r, ai_bits, prev_ret.get(r["symbol"])) for r in retired_rows]
     rows = sort_buy_table(rows)
     dca = [build_dca_row(s, prices.get(s["symbol"]) or prices.get(s["yf"]),
                          errors.get(s["symbol"]) or errors.get(s["yf"])) for s in DCA_SPECS]
@@ -588,7 +854,7 @@ def build_plan(prices, errors, prev_plan, beijing_date, movers, ai_bits, stale_a
         "buy_table": rows,
         "dca": dca,
         "levered": {
-            "symbols": list(LEVERED),
+            "symbols": [s["symbol"] for s in PLAN_SPECS if s.get("kind") == "levered"],
             "rule": "三只杠杆 ETF 同时只拿一只：哪只先到买点就买哪只；买了之后，另外两只只观察、不提示买入。",
             "reached_buy": reached,
         },
@@ -599,7 +865,12 @@ def build_plan(prices, errors, prev_plan, beijing_date, movers, ai_bits, stale_a
             "error": (movers or {}).get("error"),
         },
         "swap_proposal": (ai_bits or {}).get("swap_proposal"),
-        "opportunities": (ai_bits or {}).get("opportunities") or [],
+        "opportunities": [],
+        "retired_table": retired_rows,
+        "active": [{k: s.get(k) for k in ("symbol", "yf", "name", "levels", "kind", "added", "from", "why") if s.get(k) not in (None, "")} for s in PLAN_SPECS],
+        "retired": [dict(s) for s in RETIRED_SPECS],
+        "swap_log": list(SWAP_LOG),
+        "dropped": list(DROPPED),
         "levels_advice": (ai_bits or {}).get("levels_advice") or {},
         "big_news": (ai_bits or {}).get("big_news") or [],
         "ai_stale": bool(stale_ai),
@@ -614,130 +885,28 @@ def build_plan(prices, errors, prev_plan, beijing_date, movers, ai_bits, stale_a
 
 
 # ------------------------------------------------------------------ AI
-SYSTEM = ("你是一名谨慎的中文市场信息整理助手。你必须通过联网搜索核实信息，只报道你在搜索结果里确实看到的内容；"
-          "查不到或无法确认时，明确写“未能核实”，绝不编造数字、新闻或来源。你的输出仅供学习参考，不构成投资建议。"
-          "你不知道、也不要猜测用户的持仓数量、成本或金额。")
+SYSTEM = ("你是谨慎的中文财经信息整理助手。只用联网搜索核实，只写搜到的内容；查不到就留空，不要编造数字、新闻或来源。"
+          "不要给出买卖建议。你不知道也不要猜测用户的持仓。")
 
-SCHEMA_TEXT = """{
-  "market_summary": {
-    "headline": "一句话总结隔夜美股（不超过40字）",
-    "overview": "隔夜美股三大指数表现及原因，80-200字",
-    "macro": ["美联储/利率/通胀/就业等宏观要闻，每条一句话，0-4条，没有则空数组"]
-  },
-  "watchlist_news": [
-    {"symbol": "关注或计划里的代码", "summary": "过去24小时与该标的相关的重要消息，没有则写“暂无重大消息”", "sentiment": "利好|利空|中性"}
-  ],
-  "sp500_mover_reasons": [
-    {"ticker": "必须是上面给出的涨跌榜代码", "reason": "一句已核实的原因；查不到写未能核实"}
-  ],
-  "big_news": [
-    {"summary": "一句重大新闻", "url": "https://来源链接"}
-  ],
-  "levels_advice": [
-    {"symbol": "NVDA", "stop_loss": 0, "take_profit": 0, "extra_tranches": [], "reason": "一句依据（历史支撑/阻力或新闻）", "url": "https://仅新闻驱动时填写，否则空字符串"}
-  ],
-  "opportunities": [
-    {"ticker": "代码", "name": "名称", "vs": "对比的现有代码", "why": "为什么明显更好", "tranches": [0], "stop_loss": 0, "take_profit": 0, "reason": "一句依据", "url": "https://可选"}
-  ]
-}"""
+SCHEMA_TEXT = """{"sp500_mover_reasons":[{"ticker":"代码","reason":"一句话原因，查不到就不要列这一条"}],"big_news":[{"summary":"一句话","url":"https://来源"}],"opportunity":null}"""
 
 
-def build_prompt(cfg, today_bj, prices, indices, fx, plan_rows, dca_rows, movers, beijing_date):
-    wl = cfg["watchlist"]
-    names = cfg.get("names", {})
-    plan_syms = [s["symbol"] for s in PLAN_SPECS] + [s["symbol"] for s in DCA_SPECS]
-    # 关注列表 + 计划标的（仅代码，不含持仓）
-    seen, combo = set(), []
-    for s in list(wl) + plan_syms:
-        u = str(s).upper()
-        if u in seen:
-            continue
-        seen.add(u)
-        combo.append(u)
-    wl_lines = []
-    for s in combo:
-        p = prices.get(s) or prices.get(s.replace(".", "-"))
-        extra = ""
-        if p and p.get("change_pct") is not None:
-            lab = p.get("price_label") or "收盘"
-            extra = f"，最近{lab} {p['price']} {p.get('currency','')}，涨跌 {p['change_pct']}%（{p['date']}）"
-        nm = names.get(s) or next((x["name"] for x in PLAN_SPECS + DCA_SPECS if x["symbol"] == s), "")
-        wl_lines.append(f"- {s}（{nm}）{extra}")
-    idx_lines = [f"- {n}（{k}）：{v['price']}，涨跌 {v['change_pct']}%（{v['date']}）"
-                 for k, v in indices.items() for n in [v.get('name', k)] if v.get("change_pct") is not None]
-    buy_lines = []
-    for r in plan_rows or []:
-        if r.get("error") and not r.get("price"):
-            buy_lines.append(f"- {r['symbol']}：行情获取失败（{r['error']}）")
-            continue
-        gap = "只看不买，不提示买入" if r.get("watch_only") else (
-            f"距买点 {r.get('nearest_level')} 还差 {r.get('gap_pct')}%（{r.get('gap_price')}）"
-            if r.get("nearest_level") is not None else "买点缺口暂缺"
-        )
-        if r.get("newly_touched"):
-            gap += f"；新触及买点 {', '.join(str(x) for x in r['newly_touched'])}"
-        elif r.get("touched_now") and not r.get("watch_only"):
-            gap += f"；已到买点 {', '.join(str(x) for x in r['touched_now'])}"
-        lab = r.get("price_label") or "收盘"
-        rng = ""
-        if r.get("high_52w") and r.get("low_52w"):
-            rng = f"；近一年高/低 {r['high_52w']}/{r['low_52w']}"
-            if r.get("high_3m") and r.get("low_3m"):
-                rng += f"，近三个月高/低 {r['high_3m']}/{r['low_3m']}"
-        buy_lines.append(
-            f"- {r['symbol']} {lab} {r.get('price')}，涨跌 {r.get('change_pct')}%（{r.get('date')}）；核心买点梯子 {r.get('levels')}；{gap}{rng}"
-        )
-    dca_lines = []
-    for r in dca_rows or []:
-        lab = r.get("price_label") or "收盘"
-        dca_lines.append(f"- {r['symbol']} {lab} {r.get('price')}，涨跌 {r.get('change_pct')}%（{r.get('date')}）")
-    mover_lines = []
-    if movers and not movers.get("error") and (movers.get("gainers") or movers.get("losers")):
-        mover_lines.append(f"交易日：{movers.get('session_date') or '未知'}（数字已由行情接口计算，请不要改涨跌幅）")
-        mover_lines.append("涨幅前3：")
-        for g in movers.get("gainers") or []:
-            mover_lines.append(f"- {g['ticker']} {g.get('name','')} {g.get('change_pct')}% 收盘 {g.get('price')}")
-        mover_lines.append("跌幅前3：")
-        for g in movers.get("losers") or []:
-            mover_lines.append(f"- {g['ticker']} {g.get('name','')} {g.get('change_pct')}% 收盘 {g.get('price')}")
-    else:
-        mover_lines.append("今日未能从行情接口生成标普500涨跌榜" + (f"：{movers.get('error')}" if movers and movers.get("error") else "。") + "请不要编造涨跌榜名单或涨跌幅，让 sp500_mover_reasons 为空数组。")
-
-    fx_line = ""
-    if fx and fx.get("USDCNY"):
-        fx_line = f"参考汇率：1 美元 ≈ {fx['USDCNY']} 人民币。"
-
-    return f"""今天是北京时间 {today_bj}。请联网搜索，为我生成一份中文「每日盘前计划」的文字部分。
-
-{fx_line}
-
-我的关注 / 交易计划标的（只是代码和公开买点，不涉及持仓数量或金额）：
-{chr(10).join(wl_lines)}
-
-已用行情接口算好的买点表（请直接采用数字，不要改价格或缺口）：
-{chr(10).join(buy_lines) if buy_lines else '（暂无）'}
-
-定投行情：
-{chr(10).join(dca_lines) if dca_lines else '（暂无）'}
-
-已核实的指数收盘数据（来自行情接口，请优先采用）：
-{chr(10).join(idx_lines) if idx_lines else '（暂无）'}
-
-标普500涨跌榜：
-{chr(10).join(mover_lines)}
-
-要求：
-1. market_summary：用一两段话总结最近一个美股交易日（隔夜）的表现及主要原因；macro 只列确实查到的宏观要闻。
-2. watchlist_news：尽量覆盖关注列表和计划里的代码（NVDA、ADBE、BRK.B、TQQQ、SOXL、KORU、QQQM、SCHD 等），没有重大消息就写“暂无重大消息”。
-3. sp500_mover_reasons：仅为上面涨跌榜里出现的代码各写一句已核实原因，不要增减名单，不要改涨跌幅。查不到就写“未能核实”。
-4. big_news：只写真正重大的消息，最多 3 条，可以是 0 条。范围仅限：美联储和利率、英伟达、ADBE 财报（约北京时间 {ADBE_EARNINGS_BJ} 早上）、重要宏观数据，以及会影响长城短债的国内债市大波动。每条必须是一句摘要 + 一个可打开的 http(s) 来源链接。没有大消息就输出空数组，不要凑数、不要编造。
-5. levels_advice：请为买点表里的每只都给出参考止损 stop_loss 和参考止盈 take_profit（尤其是 NVDA、TQQQ、SOXL、KORU 等激进品种，ADBE、BRK.B 也要给）。依据历史支撑/阻力（可参考上面给出的近一年、近三个月高低）以及你检索到的最近新闻。必须写一句 reason；若主要受新闻驱动，再给一个可打开的 http(s) url，否则 url 填空字符串。这些只是参考，不是下单指令，不要写成“必须卖出/必须买入”。不要修改、删除或改写用户既定的核心买点梯子。若根据历史结构认为再增加 1–3 个分批买点有帮助，放入 extra_tranches（必须明显不同于核心买点，不要重复、不要把现价写成买点）。NVDA 在财报前仍可给参考止盈止损，但不要暗示现在就买。查不到就让数字留空并在 reason 写“未能核实”，不要编造精确到分的假支撑。
-6. opportunities：若你发现明显好于当前观察池 / 云端自选 / 计划标的（上面列表里的代码）的机会，请列出来，每天 0–3 条。填写 ticker、name、vs（对比的现有代码，必须是上面列表中的一个）、why、tranches（建议分批买点，1–4 个数字）、stop_loss、take_profit、reason；新闻驱动时加 url。这是给用户看的观察或替换建议，系统不会自动改自选清单。不要因为普通涨跌就硬凑；没有就输出空数组。
-7. 全部用简体中文。不确定就写“未能核实”，不要编造。
-8. 正文里不要出现任何网址、Markdown 链接、引用标记或脚注（big_news.url、levels_advice.url、opportunities.url 字段除外）。不要写持仓数量、成本、金额或账户余额（你也不掌握这些信息）。
-9. 只输出一个 JSON 对象，不要任何多余文字、不要 Markdown 代码块。JSON 结构如下：
-{SCHEMA_TEXT}
-"""
+def build_prompt(today_bj, movers):
+    """极简提示词：只查涨跌榜原因 + 重大新闻（+可选一条明显更好的机会）。价格、买点、止盈止损都在本地算好，不让模型参与。"""
+    lines = []
+    if movers and not movers.get("error"):
+        for tag, key in (("涨", "gainers"), ("跌", "losers")):
+            for g in movers.get(key) or []:
+                lines.append(f"{tag} {g['ticker']}（{g.get('name','')}）{g.get('change_pct')}%")
+    movers_txt = "\n".join(lines) if lines else "（今日无涨跌榜，sp500_mover_reasons 输出空数组）"
+    plan_syms = "、".join(s["symbol"] for s in PLAN_SPECS)
+    return f"""北京时间 {today_bj}。联网搜索，只做两件事：
+1. 为下面标普500上一交易日涨跌榜的每只股票各找一句原因（中文，不超过40字）。查不到可靠原因就不要输出那一条，不要写“未能核实”。
+{movers_txt}
+2. big_news：最多 3 条真正重大的新闻，每条一句中文摘要 + 一个 http(s) 来源链接。范围仅限：美联储和利率、英伟达、ADBE 财报（约北京时间 {ADBE_EARNINGS_BJ} 早上）、重要宏观数据、会影响长城短债的国内债市大波动。没有就输出空数组，不要凑数。
+可选 opportunity：只有“极其明显”好于现有计划标的（{plan_syms}）的机会才填（流动性好、催化剂清晰、趋势或估值明显更优）。系统检查通过后会直接用它替换 vs 指定的现有标的，无需用户确认，所以门槛要高；大多数日子必须为 null。对象含 ticker、name、vs（必须是上面括号里的一个代码）、why（一句话）、url（可选）。不要给价格，系统会本地计算。
+正文里不要出现网址或引用标记（url 字段除外）。只输出一个 JSON 对象，不要多余文字：
+{SCHEMA_TEXT}"""
 
 
 def extract_json(text):
@@ -862,64 +1031,26 @@ def _plan_symbol_set():
     return {s["symbol"].upper() for s in PLAN_SPECS} | {s["yf"].upper() for s in PLAN_SPECS}
 
 
+PLACEHOLDER_REASON = re.compile(r"^(未能核实|暂无可靠原因|暂无|无|未知|未核实|n/?a|none|null|—|-)+[。.!！]?$", re.I)
+
+
+def _real_reason(s):
+    s = _s(s, 400)
+    return "" if (not s or PLACEHOLDER_REASON.match(s) or "未能核实" in s) else s
+
+
 def validate_radar(obj, cfg, movers=None):
-    """校验并整理 AI 输出；不合格时抛出异常。"""
+    """校验并整理 AI 输出（精简版）：只收涨跌榜原因、大新闻、至多一条机会。"""
     if not isinstance(obj, dict):
         raise ValueError("JSON 顶层不是对象")
-    ms = obj.get("market_summary")
-    if not isinstance(ms, dict):
-        ms = {}
-    if not _s(ms.get("overview")) and not _s(ms.get("headline")):
-        # 允许只有新闻/涨跌原因，但至少要有一段市场文字，避免空壳成功
-        if not (obj.get("big_news") or obj.get("sp500_mover_reasons")):
-            raise ValueError("缺少 market_summary.overview")
-    macro = ms.get("macro") or []
-    if isinstance(macro, str):
-        macro = [macro]
-    wl = {s.upper() for s in cfg["watchlist"]} | _plan_symbol_set() | {s["symbol"].upper() for s in DCA_SPECS}
-    news = []
-    for it in obj.get("watchlist_news") or []:
-        if isinstance(it, dict) and _s(it.get("symbol")) and _s(it.get("summary")):
-            sent = _s(it.get("sentiment"), 4)
-            news.append({"symbol": _s(it["symbol"], 12).upper(), "summary": _s(it["summary"]),
-                         "sentiment": sent if sent in ("利好", "利空", "中性") else "中性"})
-    # 兼容旧字段 unusual_movers（可选，不再作为计划主体）
-    movers_u = []
-    for it in obj.get("unusual_movers") or []:
-        if not isinstance(it, dict) or not _s(it.get("ticker")):
-            continue
-        tk = _s(it["ticker"], 12).upper()
-        if tk in wl:
-            continue
-        movers_u.append({"ticker": tk, "name": _s(it.get("name"), 60), "move": _s(it.get("move"), 20) or "未核实",
-                         "reason": _s(it.get("reason")), "relevance": _s(it.get("relevance"))})
-    hi = cfg.get("radar", {}).get("movers_max", 5)
     extra = []
-    hl, u = _clean_cites(ms.get("headline")); extra += u
-    ov, u = _clean_cites(ms.get("overview")); extra += u
-    macros = []
-    for m in macro:
-        t1, u = _clean_cites(m)
-        if _s(t1):
-            macros.append(_s(t1, 300))
-            extra += u
-    news2 = []
-    for it in news:
-        t1, u = _clean_cites(it["summary"]); extra += u
-        news2.append({**it, "summary": _s(t1)})
-    movers2 = []
-    for it in movers_u:
-        r1, u1 = _clean_cites(it["reason"]); extra += u1
-        r2, u2 = _clean_cites(it["relevance"]); extra += u2
-        movers2.append({**it, "reason": _s(r1), "relevance": _s(r2)})
 
     allowed = set()
     if movers:
         for row in (movers.get("gainers") or []) + (movers.get("losers") or []):
             if row.get("ticker"):
-                allowed.add(str(row["ticker"]).upper())
-                allowed.add(str(row["ticker"]).upper().replace(".", "-"))
-                allowed.add(str(row["ticker"]).upper().replace("-", "."))
+                tk = str(row["ticker"]).upper()
+                allowed |= {tk, tk.replace(".", "-"), tk.replace("-", ".")}
     reasons = {}
     for it in obj.get("sp500_mover_reasons") or []:
         if not isinstance(it, dict) or not _s(it.get("ticker")):
@@ -927,9 +1058,12 @@ def validate_radar(obj, cfg, movers=None):
         tk = _s(it["ticker"], 16).upper()
         reason, u = _clean_cites(it.get("reason"))
         extra += u
-        if allowed and tk not in allowed and tk.replace("-", ".") not in allowed and tk.replace(".", "-") not in allowed:
+        reason = _real_reason(reason)
+        if not reason:
             continue
-        reasons[tk] = _s(reason, 400) or "未能核实"
+        if allowed and tk not in allowed:
+            continue
+        reasons[tk] = reason
 
     big = []
     for it in obj.get("big_news") or []:
@@ -946,142 +1080,35 @@ def validate_radar(obj, cfg, movers=None):
 
     def _canon_sym(s):
         s = _s(s, 16).upper()
-        if s in ("BRK-B", "BRKB"):
-            return "BRK.B"
-        return s.replace("_", ".")
-
-    def _pos_nums(v, cap=6):
-        if v is None or v == "":
-            return []
-        if not isinstance(v, (list, tuple)):
-            v = [v]
-        out = []
-        for x in v:
-            try:
-                n = float(x)
-            except (TypeError, ValueError):
-                continue
-            if n > 0:
-                out.append(round(n, 4))
-            if len(out) >= cap:
-                break
-        return out
+        return "BRK.B" if s in ("BRK-B", "BRKB") else s.replace("_", ".")
 
     known = {s.upper() for s in cfg["watchlist"]} | _plan_symbol_set() | {s["symbol"].upper() for s in DCA_SPECS}
     known |= {x.replace("-", ".") for x in known} | {x.replace(".", "-") for x in known}
-
-    advice = {}
-    for it in obj.get("levels_advice") or []:
-        if not isinstance(it, dict) or not _s(it.get("symbol")):
-            continue
-        sym = _canon_sym(it.get("symbol"))
-        reason, u = _clean_cites(it.get("reason") or it.get("sl_tp_reason"))
+    opp = obj.get("opportunity")
+    if opp is None and isinstance(obj.get("opportunities"), list) and obj["opportunities"]:
+        opp = obj["opportunities"][0]
+    opp_out = None
+    if isinstance(opp, dict):
+        tk = _canon_sym(opp.get("ticker") or opp.get("symbol"))
+        why, u = _clean_cites(opp.get("why") or opp.get("reason"))
         extra += u
-        url = _http_url(it.get("url") or (u[0] if u else ""))
-        sl = _r(it.get("stop_loss") or it.get("sl"), 4)
-        tp = _r(it.get("take_profit") or it.get("tp"), 4)
-        if sl is not None and not (sl > 0):
-            sl = None
-        if tp is not None and not (tp > 0):
-            tp = None
-        advice[sym] = {
-            "stop_loss": sl,
-            "take_profit": tp,
-            "extra_tranches": _pos_nums(it.get("extra_tranches") or it.get("extra_levels")),
-            "reason": _s(reason, 300),
-            "url": url,
-        }
-
-    opps = []
-    seen_tk = set()
-    for it in obj.get("opportunities") or []:
-        if not isinstance(it, dict):
-            continue
-        tk = _canon_sym(it.get("ticker") or it.get("with_ticker") or it.get("symbol"))
-        if not tk or tk in seen_tk:
-            continue
-        why, u1 = _clean_cites(it.get("why"))
-        reason, u2 = _clean_cites(it.get("reason"))
-        extra += u1 + u2
-        url = _http_url(it.get("url") or ((u1 + u2)[0] if (u1 + u2) else ""))
-        vs = _canon_sym(it.get("vs") or it.get("replace") or it.get("versus"))
-        if vs and vs not in known and vs.replace("-", ".") not in known:
+        vs = _canon_sym(opp.get("vs") or opp.get("replace"))
+        if vs and vs not in known:
             vs = ""
-        if not _s(why) and not _s(reason):
-            continue
-        # 不要把已经在核心计划里的代码再当成“新机会”
-        plan_only = _plan_symbol_set()
-        if tk in plan_only:
-            continue
-        sl = _r(it.get("stop_loss") or it.get("sl"), 4)
-        tp = _r(it.get("take_profit") or it.get("tp"), 4)
-        tranches = _pos_nums(it.get("tranches") or it.get("buy_points") or it.get("levels"))
-        if it.get("buy_point") and not tranches:
-            tranches = _pos_nums([it.get("buy_point")])
-        opps.append({
-            "ticker": tk,
-            "name": _s(it.get("name") or it.get("with_name"), 60),
-            "vs": vs,
-            "why": _s(why or reason, 400),
-            "tranches": tranches,
-            "stop_loss": sl if sl and sl > 0 else None,
-            "take_profit": tp if tp and tp > 0 else None,
-            "reason": _s(reason, 300),
-            "url": url,
-        })
-        seen_tk.add(tk)
-        if len(opps) >= 3:
-            break
-
-    # 兼容旧的 swap_proposal：并入 opportunities
-    swap = obj.get("swap_proposal")
-    swap_out = None
-    if isinstance(swap, dict) and _s(swap.get("replace")) and _s(swap.get("with_ticker") or swap.get("with")):
-        why, u = _clean_cites(swap.get("why") or swap.get("reason"))
-        extra += u
-        rep = _canon_sym(swap.get("replace"))
-        wit = _canon_sym(swap.get("with_ticker") or swap.get("with"))
-        if wit and wit != rep and _s(why) and wit not in seen_tk:
-            bp = swap.get("buy_point") or swap.get("buyPoint")
-            try:
-                bp = float(bp) if bp is not None and str(bp).strip() != "" else None
-            except (TypeError, ValueError):
-                bp = None
-            swap_out = {
-                "replace": rep,
-                "with_ticker": wit,
-                "with_name": _s(swap.get("with_name") or swap.get("name"), 60),
-                "why": _s(why, 400),
-                "buy_point": _r(bp, 4),
-            }
-            if len(opps) < 3:
-                opps.append({
-                    "ticker": wit,
-                    "name": swap_out["with_name"],
-                    "vs": rep,
-                    "why": swap_out["why"],
-                    "tranches": [swap_out["buy_point"]] if swap_out["buy_point"] else [],
-                    "stop_loss": _r(swap.get("stop_loss"), 4),
-                    "take_profit": _r(swap.get("take_profit"), 4),
-                    "reason": "",
-                    "url": _http_url(swap.get("url")),
-                })
-                seen_tk.add(wit)
+        if tk and _s(why) and tk not in _plan_symbol_set():
+            opp_out = {"ticker": tk, "name": _s(opp.get("name"), 60), "vs": vs, "why": _s(why, 300),
+                       "url": _http_url(opp.get("url") or (u[0] if u else ""))}
 
     return {
-        "market_summary": {"headline": _s(hl, 80), "overview": _s(ov, 1500), "macro": macros[:6]},
-        "watchlist_news": news2,
-        "unusual_movers": movers2[:hi],
         "sp500_mover_reasons": reasons,
         "big_news": big,
-        "levels_advice": advice,
-        "opportunities": opps,
-        "swap_proposal": swap_out,
+        "opportunity": opp_out,
         "_extracted_urls": extra,
     }
 
 
 def _attach_reasons(movers, reasons):
+    """把原因并入涨跌榜；没有可靠原因就留空（页面只显示代码、名称和涨跌幅）。"""
     if not movers:
         return movers
     out = dict(movers)
@@ -1094,7 +1121,7 @@ def _attach_reasons(movers, reasons):
             or (reasons or {}).get(tk.replace("-", "."))
             or ""
         )
-        return {**row, "reason": reason or "未能核实"}
+        return {**row, "reason": _real_reason(reason)}
 
     out["gainers"] = [one(r) for r in (movers.get("gainers") or [])]
     out["losers"] = [one(r) for r in (movers.get("losers") or [])]
@@ -1117,7 +1144,8 @@ def call_gemini(prompt):
         config=types.GenerateContentConfig(
             system_instruction=SYSTEM,
             tools=[types.Tool(google_search=types.GoogleSearch())],
-            temperature=0.3,
+            temperature=0.2,
+            max_output_tokens=int(os.environ.get("AI_MAX_OUTPUT_TOKENS", "") or 2048),
         ),
     )
     text = resp.text or ""
@@ -1143,6 +1171,8 @@ def call_grok(prompt):
         "model": model,
         "input": [{"role": "system", "content": SYSTEM}, {"role": "user", "content": prompt}],
         "tools": [{"type": "web_search"}],
+        # 输出很短；上限同时覆盖推理 token，设太小会截断，所以留余量。可用 AI_MAX_OUTPUT_TOKENS 调整
+        "max_output_tokens": int(os.environ.get("AI_MAX_OUTPUT_TOKENS", "") or 2000),
     }
     r = requests.post(f"{base}/responses", json=body, timeout=400,
                       headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"})
@@ -1167,7 +1197,8 @@ def call_grok(prompt):
     return text, sources, model
 
 
-def run_ai(cfg, today_bj, prices, indices, fx, plan_rows, dca_rows, movers, beijing_date):
+def run_ai(cfg, today_bj, movers):
+    """整个脚本只调用一次模型（网络错误时最多再试一次；JSON 格式不对不重试，避免重复花费）。"""
     provider = (os.environ.get("AI_PROVIDER", "") or "gemini").strip().lower()
     if provider in ("xai", "grok"):
         provider, fn = "grok", call_grok
@@ -1176,89 +1207,109 @@ def run_ai(cfg, today_bj, prices, indices, fx, plan_rows, dca_rows, movers, beij
     else:
         return None, {"provider": provider, "model": None, "ok": False,
                       "error": f"不认识的 AI_PROVIDER：{provider}（只能填 gemini 或 grok）"}
-    prompt = build_prompt(cfg, today_bj, prices, indices, fx, plan_rows, dca_rows, movers, beijing_date)
+    prompt = build_prompt(today_bj, movers)
     model = (os.environ.get("XAI_MODEL", "").strip() or "grok-4.7") if provider == "grok" else (os.environ.get("GEMINI_MODEL", "").strip() or "gemini-3.8-flash")
     last = None
-    for i in range(2):  # 最多尝试 2 次（含 JSON 格式不合格时重试）
+    for i in range(2):
         try:
             text, sources, model = fn(prompt)
-            radar = validate_radar(extract_json(text), cfg, movers)
-            extra = radar.pop("_extracted_urls", []) or []
-            seen, src = set(), []
-            # 正文里抽到的引用优先，再补接口返回的来源；大新闻链接一并纳入
-            news_urls = [{"title": "", "url": n["url"]} for n in (radar.get("big_news") or []) if n.get("url")]
-            for a in (radar.get("levels_advice") or {}).values():
-                if isinstance(a, dict) and a.get("url"):
-                    news_urls.append({"title": "", "url": a["url"]})
-            for o in radar.get("opportunities") or []:
-                if isinstance(o, dict) and o.get("url"):
-                    news_urls.append({"title": "", "url": o["url"]})
-            for s in (news_urls + [{"title": "", "url": u} for u in extra] + list(sources or [])):
-                u = _http_url((s or {}).get("url") if isinstance(s, dict) else s)
-                if not u or u in seen:
-                    continue
-                seen.add(u)
-                title = (s.get("title") or "") if isinstance(s, dict) else ""
-                src.append({"title": title, "url": u})
-            radar["sources"] = src[:16]
-            return radar, {"provider": provider, "model": model, "ok": True, "error": None}
         except Exception as e:  # noqa: BLE001
             last = e
-            log(f"  AI 调用/解析失败（第 {i + 1}/2 次）：{e}")
+            log(f"  AI 调用失败（第 {i + 1}/2 次）：{e}")
             if "没有设置" in str(e):
                 break
             time.sleep(5)
+            continue
+        try:
+            radar = validate_radar(extract_json(text), cfg, movers)
+        except Exception as e:  # noqa: BLE001
+            last = e
+            log(f"  AI 返回内容解析失败（不再重试）：{e}")
+            break
+        extra = radar.pop("_extracted_urls", []) or []
+        seen, src = set(), []
+        pre = [{"title": "", "url": n["url"]} for n in (radar.get("big_news") or []) if n.get("url")]
+        o = radar.get("opportunity")
+        if o and o.get("url"):
+            pre.append({"title": "", "url": o["url"]})
+        for s in (pre + [{"title": "", "url": u} for u in extra] + list(sources or [])):
+            u = _http_url((s or {}).get("url") if isinstance(s, dict) else s)
+            if not u or u in seen:
+                continue
+            seen.add(u)
+            src.append({"title": (s.get("title") or "") if isinstance(s, dict) else "", "url": u})
+        radar["sources"] = src[:12]
+        return radar, {"provider": provider, "model": model, "ok": True, "error": None}
     return None, {"provider": provider, "model": model, "ok": False, "error": str(last)[:300]}
 
 
+def local_market_summary(indices):
+    """隔夜美股摘要改由行情接口数字在本地拼出（不调用模型）。"""
+    parts = []
+    for v in (indices or {}).values():
+        if v.get("change_pct") is not None:
+            parts.append(f"{v.get('name','')} {v['change_pct']:+.2f}%")
+    return {"headline": "；".join(parts)[:80], "overview": "", "macro": []}
+
+
 # ------------------------------------------------------------------ Server酱
+def build_push_text(data, ai_ok):
+    """微信推送的简短中文摘要：新触及买点、自动替换、涨跌榜、大新闻标题、网页链接。不含任何持仓或金额。"""
+    plan = data.get("plan") or {}
+    today = (data.get("updated_at_beijing") or "")[:10]
+    lines = []
+    ms = ((data.get("radar") or {}).get("market_summary") or {}).get("headline")
+    if ms:
+        lines.append("美股收盘：" + ms)
+    touched = []
+    for r in plan.get("buy_table") or []:
+        if r.get("watch_only") or not r.get("newly_touched"):
+            continue
+        touched.append(f"{r['symbol']} " + "/".join(str(x) for x in r["newly_touched"]))
+    if touched:
+        lines.append("🔔 新触及买点：" + "；".join(touched))
+    reached = [s for s in ((plan.get("levered") or {}).get("reached_buy") or [])]
+    if len(reached) > 1:
+        lines.append("三只杠杆 ETF 只买一只，已到买点：" + "、".join(reached))
+    swaps = [e for e in plan.get("swap_log") or [] if e.get("date") == today]
+    if swaps:
+        lines.append("🔁 已自动替换：" + "；".join(f"{e['out']}→{e['in']}（{(e.get('reason') or '')[:30]}）" for e in swaps))
+    mv = plan.get("sp500_movers") or {}
+    def fm(arr):
+        return "、".join(f"{x['ticker']} {x['change_pct']:+.1f}%" for x in arr or [])
+    if mv.get("gainers") or mv.get("losers"):
+        lines.append(f"标普500 涨：{fm(mv.get('gainers'))}｜跌：{fm(mv.get('losers'))}")
+    news = plan.get("big_news") or []
+    if news and not plan.get("ai_stale"):
+        lines.append("📰 大新闻：" + "；".join(n.get("summary", "")[:40] for n in news[:3] if n.get("summary")))
+    if not ai_ok:
+        lines.append("（今日 AI 未更新，涨跌原因/新闻沿用上次）")
+    url = os.environ.get("PAGES_URL", "").strip() or DEFAULT_PAGES_URL
+    lines.append("详情：" + url)
+    lines.append(PLAN_DISCLAIMER)
+    return "\n\n".join(lines)
+
+
 def push_serverchan(data, radar_ok):
+    """Server酱推送；任何失败都静默（只打一行日志，不让任务变红）。"""
     key = os.environ.get("SERVERCHAN_KEY", "").strip()
     if not key:
         log("未设置 SERVERCHAN_KEY，跳过微信推送。")
         return
-    lines = []
-    for s in data["watchlist"]:
-        p = data["prices"].get(s)
-        if p and p.get("change_pct") is not None:
-            lines.append(f"- {s} {p['change_pct']:+.2f}%")
-    plan = data.get("plan") or {}
-    newly = []
-    for r in plan.get("buy_table") or []:
-        if r.get("newly_touched"):
-            newly.append(f"{r['symbol']} " + "、".join(str(x) for x in r["newly_touched"]))
-    if newly:
-        lines.append("\n新触及买点：" + "；".join(newly))
-    radar = data.get("radar")
-    if radar and radar_ok:
-        if radar.get("market_summary") and radar["market_summary"].get("headline"):
-            lines.insert(0, radar["market_summary"]["headline"] + "\n")
-        news = plan.get("big_news") or []
-        if news:
-            lines.append("\n大新闻：" + "；".join(n.get("summary", "") for n in news[:3] if n.get("summary")))
-    elif not radar_ok:
-        lines.append("\n（今日 AI 雷达生成失败，只更新了行情）")
-    repo = os.environ.get("GITHUB_REPOSITORY", "")
-    url = os.environ.get("PAGES_URL", "").strip()
-    if not url and "/" in repo:
-        o, n = repo.split("/", 1)
-        url = f"https://{o}.github.io/{n}/"
-    if url:
-        lines.append(f"\n查看详情：{url}")
-    lines.append(f"\n{PLAN_DISCLAIMER}")
-    title = f"每日雷达 {data['updated_at_beijing'][:10]}"
     try:
-        r = requests.post(f"https://sctapi.ftqq.com/{key}.send", data={"title": title, "desp": "\n".join(lines)}, timeout=15)
+        title = f"每日雷达 {(data.get('updated_at_beijing') or '')[:10]}"
+        r = requests.post(f"https://sctapi.ftqq.com/{key}.send",
+                          data={"title": title[:32], "desp": build_push_text(data, radar_ok)}, timeout=15)
         log(f"Server酱推送：HTTP {r.status_code}")
     except Exception as e:  # noqa: BLE001
-        warn(f"Server酱推送失败：{e}")
+        log(f"Server酱推送未成功（已忽略）：{str(e)[:80]}")
 
 
 def _alias_prices(prices, errors):
     """把 BRK-B / BRK.B 等别名统一写进 prices，方便页面查找。"""
     out = dict(prices)
     err = dict(errors)
-    for spec in PLAN_SPECS + DCA_SPECS:
+    for spec in PLAN_SPECS + RETIRED_SPECS + DCA_SPECS:
         a, b = spec["symbol"], spec["yf"]
         if a != b:
             if a in out and b not in out:
@@ -1304,13 +1355,14 @@ def main():
     today_bj = now.strftime("%Y-%m-%d %H:%M")
     beijing_date = now.strftime("%Y-%m-%d")
     log(f"== 每日更新 {today_bj}（北京时间）==")
+    init_plan_state(prev_plan, beijing_date)
 
     # 自选 + 计划标的（计划标的拉盘后价）
     plan_yf = []
-    for s in PLAN_SPECS + DCA_SPECS:
+    for s in PLAN_SPECS + RETIRED_SPECS + DCA_SPECS:
         if s["yf"] not in plan_yf:
             plan_yf.append(s["yf"])
-    watch = list(cfg["watchlist"])
+    watch = effective_watchlist(cfg["watchlist"])
     # 先拉自选（不含已在计划里的，避免重复且计划需要盘后价）
     watch_only = [s for s in watch if s not in plan_yf and s.replace(".", "-") not in plan_yf
                   and s.replace("-", ".") not in {x["symbol"] for x in PLAN_SPECS}]
@@ -1319,7 +1371,7 @@ def main():
     log("拉取交易计划标的（含盘后价，如有）…")
     p2, e2 = fetch_prices(plan_yf, prev_real.get("prices"), want_extended=True)
     # 以展示代码写入（BRK.B 而不是 BRK-B）
-    for spec in PLAN_SPECS + DCA_SPECS:
+    for spec in PLAN_SPECS + RETIRED_SPECS + DCA_SPECS:
         rec = p2.get(spec["yf"])
         if rec:
             prices[spec["symbol"]] = rec
@@ -1347,68 +1399,32 @@ def main():
         if movers.get("error"):
             warn(movers["error"])
 
-    # 先用行情算出买点表，再交给 AI 写原因和新闻（不让模型改数字）
-    draft_plan = build_plan(prices, errors, prev_plan, beijing_date, movers, {}, stale_ai=False)
-
     radar, ai = None, {"provider": None, "model": None, "ok": False, "error": None}
     if args.skip_ai:
         ai = {"provider": None, "model": None, "ok": False, "error": "已跳过 AI（调试）"}
         warn("已按 --skip-ai 跳过模型调用")
     else:
-        log("生成每日雷达（AI 联网，只写原因/新闻/换股提议）…")
-        radar, ai = run_ai(cfg, today_bj, prices, indices, fx,
-                           draft_plan.get("buy_table"), draft_plan.get("dca"), movers, beijing_date)
+        log("调用 AI 一次（联网，只查涨跌榜原因和重大新闻）…")
+        radar, ai = run_ai(cfg, today_bj, movers)
     radar_date = now.strftime("%Y-%m-%d")
     stale = False
-    ai_bits = {"big_news": [], "swap_proposal": None, "sp500_mover_reasons": {}, "levels_advice": {}, "opportunities": []}
+    old_plan = prev_plan or {}
     if radar is None:
         if not args.skip_ai:
-            warn(f"AI 雷达生成失败：{ai['error']}（行情与买点表照常更新）")
-        old = prev_real.get("radar")
-        if old:
-            radar, stale = old, True
-            radar_date = prev_real.get("radar_date") or (prev_real.get("updated_at_beijing") or "")[:10]
-        old_plan = prev_plan or {}
-        # 行情已是新的；新闻/原因/换股/参考止盈止损沿用上次（并标记 ai_stale）
-        prev_advice = old_plan.get("levels_advice") or {}
-        if not prev_advice:
-            prev_advice = {}
-            for r in old_plan.get("buy_table") or []:
-                if not isinstance(r, dict) or not r.get("symbol"):
-                    continue
-                if r.get("ref_sl") or r.get("ref_tp") or r.get("extra_tranches"):
-                    prev_advice[r["symbol"]] = {
-                        "stop_loss": r.get("ref_sl"), "take_profit": r.get("ref_tp"),
-                        "extra_tranches": r.get("extra_tranches") or [],
-                        "reason": r.get("sl_tp_reason") or "", "url": r.get("sl_tp_url") or "",
-                        "stale": True,
-                    }
-        ai_bits = {
-            "big_news": old_plan.get("big_news") or [],
-            "swap_proposal": old_plan.get("swap_proposal"),
-            "sp500_mover_reasons": {},
-            "levels_advice": prev_advice,
-            "opportunities": old_plan.get("opportunities") or [],
-        }
-        # 若旧雷达/旧计划里已有原因，尽量补到今日涨跌榜（仅当代码仍出现在今日榜上）
+            warn(f"AI 调用失败：{ai['error']}（行情、买点和技术参考照常更新；原因/新闻沿用上次）")
+        stale = True
         old_m = (old_plan.get("sp500_movers") or {})
         old_reasons = {}
         for row in (old_m.get("gainers") or []) + (old_m.get("losers") or []):
             if row.get("ticker") and row.get("reason"):
                 old_reasons[str(row["ticker"]).upper()] = row["reason"]
-        if radar and isinstance(radar, dict) and radar.get("sp500_mover_reasons"):
-            old_reasons.update(radar.get("sp500_mover_reasons") or {})
         movers = _attach_reasons(movers, old_reasons)
-        # 若今日榜与昨日不同，原因可能不匹配，_attach_reasons 对不上的会写“未能核实”
+        ai_bits = {"big_news": old_plan.get("big_news") or [], "opportunities": []}
+        radar = {"sources": (prev_real.get("radar") or {}).get("sources") or []}
     else:
-        ai_bits = {
-            "big_news": radar.get("big_news") or [],
-            "swap_proposal": radar.get("swap_proposal"),
-            "sp500_mover_reasons": radar.get("sp500_mover_reasons") or {},
-            "levels_advice": radar.get("levels_advice") or {},
-            "opportunities": radar.get("opportunities") or [],
-        }
-        movers = _attach_reasons(movers, ai_bits["sp500_mover_reasons"])
+        movers = _attach_reasons(movers, radar.get("sp500_mover_reasons") or {})
+        apply_auto_swap(radar.get("opportunity"), beijing_date, prices, errors)
+        ai_bits = {"big_news": radar.get("big_news") or [], "opportunities": []}
 
     plan = build_plan(prices, errors, prev_plan, beijing_date, movers, ai_bits, stale_ai=stale)
     movers_pub, _cons = _strip_constituents(movers)
@@ -1419,25 +1435,32 @@ def main():
         "error": movers_pub.get("error"),
     }
 
-    # 从将写入的雷达里去掉仅供脚本使用的原因字典（原因已合并进 plan.sp500_movers）
-    radar_out = None
-    if radar:
-        radar_out = {k: v for k, v in radar.items() if k not in ("sp500_mover_reasons", "levels_advice")}
+    # radar 字段保持旧结构（页面兼容）：隔夜摘要本地拼；自选逐只新闻已取消
+    radar_out = {
+        "market_summary": local_market_summary(indices),
+        "watchlist_news": [],
+        "unusual_movers": [],
+        "big_news": plan.get("big_news") or [],
+        "swap_proposal": None,
+        "opportunities": [],
+        "sources": radar.get("sources") or [],
+    }
+    stale = False  # 隔夜摘要是今天本地算的；原因/新闻是否旧见 plan.ai_stale
 
     data = {
         "example": False,
         "schema": 2,
         "updated_at": now.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "updated_at_beijing": today_bj,
-        "watchlist": cfg["watchlist"],
-        "names": cfg.get("names", {}),
+        "watchlist": effective_watchlist(cfg["watchlist"]),
+        "names": dict(cfg.get("names", {}), **{s["yf"]: s["name"] for s in PLAN_SPECS if s.get("from")}),
         "prices": prices,
         "price_errors": errors,
         "indices": indices,
         "fx": fx,
         "plan": plan,
         "radar": radar_out,
-        "radar_date": radar_date if radar_out else None,
+        "radar_date": radar_date,
         "radar_stale": stale,
         "ai": ai,
         "disclaimer": DISCLAIMER,
