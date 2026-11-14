@@ -1,16 +1,99 @@
 {
-  "example": true,
-  "_说明": "【示例占位文件】这里没有任何真实行情。GitHub Actions 第一次运行成功后，会自动用真实数据覆盖这个文件。",
+  "example": false,
   "schema": 1,
-  "updated_at": null,
-  "updated_at_beijing": null,
-  "watchlist": ["SPYM", "QQQM", "TQQQ", "SOXL", "NVDA"],
-  "names": {},
-  "prices": {},
+  "updated_at": "2026-11-14T05:16:08Z",
+  "updated_at_beijing": "2026-11-14 13:16",
+  "watchlist": [
+    "SPYM",
+    "QQQM",
+    "TQQQ",
+    "SOXL",
+    "NVDA"
+  ],
+  "names": {
+    "SPYM": "SPDR 标普500 ETF",
+    "QQQM": "纳指100 ETF",
+    "TQQQ": "纳指3倍做多",
+    "SOXL": "半导体3倍做多",
+    "NVDA": "英伟达"
+  },
+  "prices": {
+    "SPYM": {
+      "price": 88.77,
+      "prev_close": 89.13,
+      "change_pct": -0.4,
+      "date": "2026-11-13",
+      "currency": "USD"
+    },
+    "QQQM": {
+      "price": 279.97,
+      "prev_close": 283.39,
+      "change_pct": -1.21,
+      "date": "2026-11-13",
+      "currency": "USD"
+    },
+    "TQQQ": {
+      "price": 57.68,
+      "prev_close": 59.88,
+      "change_pct": -3.67,
+      "date": "2026-11-13",
+      "currency": "USD"
+    },
+    "SOXL": {
+      "price": 58.32,
+      "prev_close": 65.53,
+      "change_pct": -11.0,
+      "date": "2026-11-13",
+      "currency": "USD"
+    },
+    "NVDA": {
+      "price": 162.85,
+      "prev_close": 166.19,
+      "change_pct": -2.01,
+      "date": "2026-11-13",
+      "currency": "USD"
+    }
+  },
   "price_errors": {},
-  "indices": {},
-  "fx": {},
+  "indices": {
+    "^GSPC": {
+      "price": 7561.6699,
+      "prev_close": 7592.3999,
+      "change_pct": -0.4,
+      "date": "2026-11-13",
+      "currency": "USD",
+      "name": "标普500"
+    },
+    "^IXIC": {
+      "price": 25136.2695,
+      "prev_close": 25366.0898,
+      "change_pct": -0.91,
+      "date": "2026-11-13",
+      "currency": "USD",
+      "name": "纳斯达克"
+    },
+    "^DJI": {
+      "price": 52347.5508,
+      "prev_close": 52297.0898,
+      "change_pct": 0.1,
+      "date": "2026-11-13",
+      "currency": "USD",
+      "name": "道琼斯"
+    }
+  },
+  "fx": {
+    "USDCNY": 6.6849,
+    "USDHKD": 7.846,
+    "source": "open.er-api.com"
+  },
   "radar": null,
-  "ai": { "provider": null, "model": null, "ok": false, "error": "示例数据：尚未运行过云端任务" },
+  "radar_date": null,
+  "radar_stale": false,
+  "ai": {
+    "provider": "gemini",
+    "model": "gemini-3.8-flash",
+    "ok": false,
+    "error": "429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://aistudio.google.com/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. ', 's"
+  },
   "disclaimer": "仅供学习与记录参考，不构成投资建议。"
 }
