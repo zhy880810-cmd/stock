@@ -1,0 +1,20 @@
+{
+  "_说明": "这是公开的自选清单，只写股票代码，不要写持仓数量和金额。想增减品种，直接改下面的 watchlist 即可（美股/ETF 直接写代码）。",
+  "watchlist": ["SPYM", "QQQM", "TQQQ", "SOXL", "NVDA"],
+  "names": {
+    "SPYM": "SPDR 标普500 ETF",
+    "QQQM": "纳指100 ETF",
+    "TQQQ": "纳指3倍做多",
+    "SOXL": "半导体3倍做多",
+    "NVDA": "英伟达"
+  },
+  "indices": {
+    "^GSPC": "标普500",
+    "^IXIC": "纳斯达克",
+    "^DJI": "道琼斯"
+  },
+  "radar": {
+    "movers_min": 3,
+    "movers_max": 5
+  }
+}

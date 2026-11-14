@@ -1,0 +1,16 @@
+{
+  "example": true,
+  "_说明": "【示例占位文件】这里没有任何真实行情。GitHub Actions 第一次运行成功后，会自动用真实数据覆盖这个文件。",
+  "schema": 1,
+  "updated_at": null,
+  "updated_at_beijing": null,
+  "watchlist": ["SPYM", "QQQM", "TQQQ", "SOXL", "NVDA"],
+  "names": {},
+  "prices": {},
+  "price_errors": {},
+  "indices": {},
+  "fx": {},
+  "radar": null,
+  "ai": { "provider": null, "model": null, "ok": false, "error": "示例数据：尚未运行过云端任务" },
+  "disclaimer": "仅供学习与记录参考，不构成投资建议。"
+}
