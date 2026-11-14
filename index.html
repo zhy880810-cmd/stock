@@ -116,6 +116,35 @@ nav.tabs button .cnt{position:absolute;top:4px;left:calc(50% + 6px);background:v
 .msg .imgs img{max-width:160px;max-height:120px;border-radius:8px;border:1px solid var(--line);object-fit:cover;cursor:pointer}
 #imgFile{display:none}
 .composer .hint{font-size:12px;color:var(--sub);margin-top:6px}
+
+.badge.agg{background:rgba(229,56,59,.15);color:var(--up)}
+.badge.cons{background:rgba(37,99,235,.12);color:var(--accent)}
+.plan-bar{display:flex;height:16px;border-radius:8px;overflow:hidden;background:var(--bg);border:1px solid var(--line);margin:8px 0 4px}
+.plan-bar > i{display:block;height:100%;min-width:0}
+.plan-bar > i.agg{background:var(--up)}
+.plan-bar > i.cons{background:var(--accent)}
+.plan-bar > i.cash{background:#9aa0aa}
+.plan-bar.tgt{height:8px;opacity:.75;margin-top:4px}
+.plan-leg{display:flex;flex-wrap:wrap;gap:8px 12px;margin:4px 0 0}
+.plan-leg i{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:4px;vertical-align:middle}
+.plan-leg i.agg{background:var(--up)}
+.plan-leg i.cons{background:var(--accent)}
+.plan-leg i.cash{background:#9aa0aa}
+.hold-preview{margin:8px 0 0;padding:10px;border:1px solid var(--line);border-radius:12px;background:var(--card);max-width:100%;align-self:flex-start}
+.hold-preview h3{font-size:14px;margin:0 0 8px}
+.hold-preview .tbl{font-size:13px;min-width:420px}
+.hold-preview .tbl th,.hold-preview .tbl td{padding:6px 6px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+.hold-preview tr.bad{opacity:.65}
+.hold-preview input,.hold-preview select{min-height:34px;padding:4px 8px;font-size:13px}
+.hold-preview .row{margin-top:8px}
+
+.chart-wrap{position:relative;width:100%;height:210px;margin-top:6px}
+.chart-wrap canvas{width:100%;height:210px;display:block}
+.chart-empty{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;text-align:center;padding:16px;color:var(--sub);font-size:13px;pointer-events:none;line-height:1.5}
+.chart-leg{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.chart-leg button{min-height:30px;padding:0 10px;font-size:12px;border-radius:15px}
+.chart-leg button i{display:inline-block;width:10px;height:3px;border-radius:1px;margin-right:5px;vertical-align:middle}
+.chart-leg button.off{opacity:.4}
 @media(min-width:720px){.sum{grid-template-columns:repeat(4,1fr)}}
 
 body.gated{overflow:hidden}
@@ -154,6 +183,7 @@ body.gated #gate{display:flex}
       <input type="file" id="imgFile" accept="image/jpeg,image/png,image/webp,image/gif,.jpg,.jpeg,.png,.webp,.gif" multiple>
       <div class="row" style="margin-top:8px">
         <button class="sm" data-act="inject">📎 插入自选+持仓</button>
+        <button class="sm" data-act="holdShot">📷 截图识别持仓</button>
         <button class="sm" data-act="attachImg">🖼 插入图片</button>
         <label class="row sub" style="gap:6px"><input type="checkbox" id="ctxAuto"> 每次自动附带</label>
         <span class="grow"></span>
@@ -222,9 +252,9 @@ const QUICK = [
 ];
 
 function defaults(){
-  return { v:1, watch:[], hold:[], events:[], manual:{}, quotes:{},
+  return { v:1, watch:[], hold:[], planHist:[], events:[], manual:{}, quotes:{},
     fx:{ ts:0, rates:{USD:1,CNY:7.1,HKD:7.8}, manual:{}, fetched:false },
-    settings:{ theme:'auto', upColor:'red', refreshSec:60, baseCur:'CNY', leadHours:24, notify:false, alert:{ on:true, lossPct:10, dayPct:5 } },
+    settings:{ theme:'auto', upColor:'red', refreshSec:60, baseCur:'CNY', leadHours:24, notify:false, alert:{ on:true, lossPct:10, dayPct:5 }, capitalUsd:1500, targetAggressive:40, targetConservative:40, targetCash:20 },
     ai:{ provider:'deepseek', ctxAuto:false, system:DEFAULT_SYSTEM, providers:{}, chat:[] } };
 }
 let S = defaults(), KEYS = {};
@@ -256,6 +286,7 @@ function dropOldChatImages(keepLatestUser){
 }
 function notifyChat(){ try{ if(typeof renderChat==='function') renderChat(); }catch(_){ } }
 function save(){
+  try{ recordPlanSnapshot(); }catch(_){}
   try{ writeState(); }
   catch(e){
     if(!isQuotaErr(e)){ toast('保存失败'); return; }
@@ -851,6 +882,496 @@ function renderRadar(){
   el.innerHTML = H.join('');
 }
 
+
+/* ============ 资金规划 / AI 持仓写入 ============ */
+const HOLDINGS_INSTRUCTION = [
+  '【持仓结构化输出】当用户要求识别、录入、更新、同步或导入持仓（例如上传券商截图并说“更新持仓”）时，请先用中文给出可读的持仓表（代码、名称、数量、成本价、市场、分仓），然后必须在回复末尾单独附加一个机器可读代码块，格式必须严格如下（不要加注释或尾随逗号）：',
+  '',
+  '```holdings-json',
+  '[{"symbol":"TQQQ","market":"US","name":"ProShares UltraPro QQQ","qty":15,"cost":57.68,"bucket":"激进"}]',
+  '```',
+  '',
+  '字段说明：',
+  '- symbol：交易代码（美股如 TQQQ、AAPL；A股如 600519 或 sh600519；港股如 00700；加密如 BTC）',
+  '- market：US / HK / CN / FUND / CRYPTO 之一（也可写 美股/港股/A股/基金/加密）',
+  '- qty：持有数量，必须是数字',
+  '- cost：每股/每份成本价，使用该品种的计价货币。截图或用户未给出成本时，省略 cost 或设为 null，不要编造，也不要用现价代替',
+  '- bucket：可选，“激进”或“保守”',
+  '- name：可选',
+  '如果本次不是在识别或更新持仓，不要输出 holdings-json 代码块。不要把该代码块包在其他代码块里。'
+].join('\n');
+const HOLD_SHOT_PROMPT = '请识别这张券商/持仓截图中的持仓，并准备更新到我的持仓列表。请列出每只代码、名称、市场、数量和成本价；截图里没有成本价就不要编造。记得在回复末尾附加 holdings-json 代码块。';
+const ETF_AGG = /^(TQQQ|SQQQ|UPRO|SPXU|SOXL|SOXS|TNA|TZA|TECL|TECS|QLD|QID|SSO|SDS|UDOW|SDOW|TMF|TMV|LABU|LABD|FAS|FAZ|NUGT|DUST|JNUG|JDST|BOIL|KOLD|UVXY|SVXY|VXX|VIXY|SPXL|SPXS|TARK|CURE|DFEN|DUSL|NAIL|RETL|CWEB|YINN|YANG|FNGU|FNGD|BULZ|BERZ|AGQ|ZSL|UCO|SCO|GUSH|DRIP|TSLL|TSLQ|NVDL|NVDX|CONL|MSFU|GGLL|AAPU|AMDL|AMZU|BITX|ETHU|MSTU|MSTX)$/i;
+const ETF_CONS = /^(SPY|SPYM|VOO|IVV|VTI|ITOT|QQQ|QQQM|DIA|IWM|VEA|VWO|VXUS|IEFA|EFA|AGG|BND|BNDX|TLT|IEF|SHY|LQD|VCIT|VCSH|VGIT|BIV|GOVT|SGOV|BIL|MUB|SCHD|VIG|VYM|DVY|DGRO|SPYD|VT|VTV|QUAL|CSPX|VUAA|SPLG|IEI|SHV|VGSH|VTIP|TIP|GLD|IAU|SLV)$/i;
+const CN_CONS = /^(sh510050|sh510300|sh510310|sh510330|sh510500|sh512100|sh563300|sz159915|sz159919|sz159922|sz159941|sh513100|sh513110|sh513500|sz159649)$/i;
+
+function defaultBucket(type, code, name){
+  const c0 = String(code||'');
+  const c = c0.toUpperCase().replace(/^US/,'');
+  const n = String(name||'');
+  const blob = (n+' '+c).toLowerCase();
+  if(type==='crypto') return 'aggressive';
+  if(ETF_AGG.test(c) || /杠杆|ultra(pro)?|direxion|\b3x\b|\b2x\b|3倍|2倍|做多|做空/.test(blob)) return 'aggressive';
+  if(ETF_CONS.test(c)) return 'conservative';
+  if(/债券|国债|地方债|信用债|短债|超短债|货币|理财|dividend|bond|treasury|money\s*market|短融|利率债/.test(blob)) return 'conservative';
+  if(/纳指100|纳斯达克100|标普500|标普 500|s&p\s*500|道指|沪深300|上证50|中证500|中证1000|中证800|创业板指|科创50|恒生指数|恒生科技|全市场|全指/.test(blob)) return 'conservative';
+  if(type==='cn' && CN_CONS.test(c0.toLowerCase())) return 'conservative';
+  if(type==='fund'){
+    if(/债券|货币|短债|理财|纯债/.test(n)) return 'conservative';
+    if(/股票|混合|指数|增强/.test(n) && !/债券/.test(n)) return 'aggressive';
+    return 'conservative';
+  }
+  return 'aggressive';
+}
+function holdBucket(h){
+  if(h && (h.bucket==='aggressive'||h.bucket==='conservative')) return h.bucket;
+  const {type,code} = splitKey(h.key);
+  return defaultBucket(type, code, h.name);
+}
+function planSettingsCard(prefix){
+  const st = S.settings;
+  const cap = Number.isFinite(num(st.capitalUsd)) ? st.capitalUsd : 1500;
+  const ta = Number.isFinite(num(st.targetAggressive)) ? st.targetAggressive : 40;
+  const tc = Number.isFinite(num(st.targetConservative)) ? st.targetConservative : 40;
+  const th = Number.isFinite(num(st.targetCash)) ? st.targetCash : 20;
+  return `<div class="card"><h2>资金规划</h2>
+    <label class="f">总资金（美元）</label>
+    <input id="${prefix}Capital" type="number" step="any" min="0" inputmode="decimal" value="${esc(cap)}">
+    <div class="sub">默认 1500 美元。持仓页可按当前汇总币种查看折算金额。</div>
+    <label class="f">目标比例（可选，%）</label>
+    <div class="row">
+      <div class="grow"><div class="sub">激进仓</div><input id="${prefix}Agg" type="number" step="any" min="0" max="100" inputmode="decimal" value="${esc(ta)}"></div>
+      <div class="grow"><div class="sub">保守仓</div><input id="${prefix}Cons" type="number" step="any" min="0" max="100" inputmode="decimal" value="${esc(tc)}"></div>
+      <div class="grow"><div class="sub">现金</div><input id="${prefix}Cash" type="number" step="any" min="0" max="100" inputmode="decimal" value="${esc(th)}"></div>
+    </div>
+    <div class="sub" style="margin-top:6px">资金规划和持仓分仓只保存在本机浏览器，不会写入云端 data.json 或 config.json。</div>
+  </div>`;
+}
+function applyPlanField(t){
+  const map = {planCapital:'capitalUsd', sCapital:'capitalUsd', planAgg:'targetAggressive', sAgg:'targetAggressive', planCons:'targetConservative', sCons:'targetConservative', planCash:'targetCash', sCash:'targetCash'};
+  const key = map[t && t.id]; if(!key) return false;
+  const v = num(t.value);
+  if(key==='capitalUsd'){
+    if(!(v>=0)){ toast('请输入有效的总资金（美元）'); return true; }
+    S.settings.capitalUsd = v;
+  } else {
+    if(!Number.isFinite(v) || v<0 || v>100){ toast('请输入 0–100 的目标比例'); return true; }
+    S.settings[key] = v;
+  }
+  save();
+  renderHold();
+  if(curTab==='set') renderSet();
+  return true;
+}
+function computePlan(){
+  const P = computePortfolio();
+  const b = P.base;
+  const capUsd = Number.isFinite(num(S.settings.capitalUsd)) ? Math.max(0, num(S.settings.capitalUsd)) : 0;
+  const capital = conv(capUsd, 'USD', b);
+  let costAll = 0, aggMv=0, consMv=0, aggCost=0, consCost=0;
+  const rows = P.rows.map(r => {
+    const bucket = holdBucket(r.h);
+    const ccAll = conv(r.h.qty * (Number.isFinite(r.h.cost)?r.h.cost:0), r.cur, b);
+    if(Number.isFinite(ccAll)){
+      costAll += ccAll;
+      if(bucket==='aggressive') aggCost += ccAll; else consCost += ccAll;
+    }
+    if(Number.isFinite(r.cv)){
+      if(bucket==='aggressive') aggMv += r.cv; else consMv += r.cv;
+    }
+    return Object.assign({}, r, {bucket});
+  });
+  const cash = Number.isFinite(capital) && Number.isFinite(costAll) ? capital - costAll : NaN;
+  const assets = Number.isFinite(cash) && Number.isFinite(P.mv) ? cash + P.mv : NaN;
+  return Object.assign({}, P, {rows, capUsd, capital, costAll, cash, assets, aggMv, consMv, aggCost, consCost});
+}
+function pctOf(part, whole){
+  return (Number.isFinite(part) && Number.isFinite(whole) && whole!==0) ? part/whole*100 : NaN;
+}
+function renderPlanBar(parts, extraCls){
+  const segs = (parts||[]).filter(p => Number.isFinite(p.pct) && p.pct>0);
+  if(!segs.length) return `<div class="plan-bar ${extraCls||''}"></div>`;
+  return `<div class="plan-bar ${extraCls||''}">${segs.map(p=>`<i class="${p.k}" style="width:${Math.max(0,p.pct)}%" title="${esc(p.label||'')}"></i>`).join('')}</div>`;
+}
+function renderPlanCard(plan){
+  const b = plan.base;
+  const den = (Number.isFinite(plan.assets) && plan.assets>0) ? plan.assets : (Number.isFinite(plan.capital) && plan.capital>0 ? plan.capital : NaN);
+  const useAssets = Number.isFinite(plan.assets) && plan.assets>0 && !(Number.isFinite(plan.cash) && plan.cash<0 && den===plan.assets && (plan.aggMv+plan.consMv)>plan.assets+1e-9);
+  const denom = (Number.isFinite(plan.cash) && plan.cash<0) ? (plan.aggMv+plan.consMv) : den;
+  const aggP = pctOf(plan.aggMv, Number.isFinite(plan.cash) && plan.cash<0 ? (plan.aggMv+plan.consMv) : den);
+  const consP = pctOf(plan.consMv, Number.isFinite(plan.cash) && plan.cash<0 ? (plan.aggMv+plan.consMv) : den);
+  const cashP = (Number.isFinite(plan.cash) && plan.cash<0) ? NaN : pctOf(Math.max(plan.cash,0), den);
+  const ta = num(S.settings.targetAggressive), tc = num(S.settings.targetConservative), th = num(S.settings.targetCash);
+  const hasT = [ta,tc,th].some(Number.isFinite);
+  const tSum = (Number.isFinite(ta)?ta:0)+(Number.isFinite(tc)?tc:0)+(Number.isFinite(th)?th:0);
+  const actualBar = (Number.isFinite(plan.cash) && plan.cash<0)
+    ? renderPlanBar([{k:'agg',pct:aggP,label:'激进仓'},{k:'cons',pct:consP,label:'保守仓'}])
+    : renderPlanBar([{k:'agg',pct:aggP,label:'激进仓'},{k:'cons',pct:consP,label:'保守仓'},{k:'cash',pct:cashP,label:'现金'}]);
+  const targetBar = hasT ? renderPlanBar([
+    {k:'agg',pct:ta,label:'目标激进'},{k:'cons',pct:tc,label:'目标保守'},{k:'cash',pct:th,label:'目标现金'}
+  ], 'tgt') : '';
+  const cashNote = (Number.isFinite(plan.cash) && plan.cash<0) ? '<div class="warnbox">持仓成本已超过总资金，现金为负。可下调仓位或调高总资金。</div>' : '';
+  const tNote = hasT && Math.abs(tSum-100)>0.5 ? `<div class="sub">当前目标比例合计 ${fmt(tSum,1)}%，不是 100%。仅作参考。</div>` : '';
+  const capFx = b==='USD' ? '' : `（合 ${fmtMoney(plan.capital,b)}）`;
+  return `<div class="card"><h2>资金规划</h2>
+    <div class="sum">
+      <div><span class="sub">总资金</span><b>${fmtMoney(plan.capUsd,'USD')}</b><span class="sub">${capFx||'以美元记账'}</span></div>
+      <div><span class="sub">现金</span><b class="${plan.cash<0?'up':''}">${fmtMoney(plan.cash,b)}</b><span class="sub">总资金 − 持仓成本</span></div>
+      <div><span class="sub">激进仓市值</span><b>${fmtMoney(plan.aggMv,b)}</b><span class="sub">${fmtPct(aggP)}</span></div>
+      <div><span class="sub">保守仓市值</span><b>${fmtMoney(plan.consMv,b)}</b><span class="sub">${fmtPct(consP)}</span></div>
+    </div>
+    <div style="margin-top:10px"><span class="sub">当前总资产（现金 + 持仓市值）</span><b style="display:block;font-size:19px">${fmtMoney(plan.assets,b)}</b></div>
+    <div class="sub" style="margin-top:8px">实际占比${Number.isFinite(plan.cash)&&plan.cash<0?'（现金为负，按持仓市值拆分）':(useAssets||den===plan.assets?'（相对当前总资产）':'（相对总资金）')}</div>
+    ${actualBar}
+    <div class="plan-leg sub"><span><i class="agg"></i> 激进仓 ${fmtPct(aggP)}</span><span><i class="cons"></i> 保守仓 ${fmtPct(consP)}</span>${Number.isFinite(plan.cash)&&plan.cash<0?'':`<span><i class="cash"></i> 现金 ${fmtPct(cashP)}</span>`}</div>
+    ${hasT?`<div class="sub" style="margin-top:8px">目标比例：激进 ${fmt(ta,1)}% · 保守 ${fmt(tc,1)}% · 现金 ${fmt(th,1)}%</div>${targetBar}`:''}
+    ${tNote}${cashNote}
+    <label class="f">总资金（美元）</label><input id="planCapital" type="number" step="any" min="0" inputmode="decimal" value="${esc(plan.capUsd)}">
+    <label class="f">目标比例（%）</label>
+    <div class="row">
+      <div class="grow"><div class="sub">激进仓</div><input id="planAgg" type="number" step="any" min="0" max="100" inputmode="decimal" value="${esc(Number.isFinite(ta)?ta:40)}"></div>
+      <div class="grow"><div class="sub">保守仓</div><input id="planCons" type="number" step="any" min="0" max="100" inputmode="decimal" value="${esc(Number.isFinite(tc)?tc:40)}"></div>
+      <div class="grow"><div class="sub">现金</div><input id="planCash" type="number" step="any" min="0" max="100" inputmode="decimal" value="${esc(Number.isFinite(th)?th:20)}"></div>
+    </div>
+    <div class="sub" style="margin-top:8px">现金按成本口径：现金 = 总资金 − 持仓总成本。当前总资产 = 现金 + 持仓市值。这些数字只存在这台设备的浏览器里，不会写入云端。</div>
+  </div>`;
+}
+
+
+function todayKey(){
+  try{ return new Date().toLocaleDateString('en-CA', {timeZone:'Asia/Hong_Kong'}); }
+  catch(_){ const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+}
+function recordPlanSnapshot(){
+  if(!Array.isArray(S.planHist)) S.planHist = [];
+  const p = computePlan();
+  const toUsd = x => conv(x, p.base, 'USD');
+  const snap = {
+    date: todayKey(),
+    ts: Date.now(),
+    capital: toUsd(p.capital),
+    cash: toUsd(p.cash),
+    agg: toUsd(p.aggMv),
+    cons: toUsd(p.consMv),
+    mv: toUsd(p.mv),
+    assets: toUsd(p.assets),
+    cost: toUsd(p.costAll)
+  };
+  if(!Number.isFinite(snap.capital) && !Number.isFinite(snap.assets) && !Number.isFinite(snap.mv)) return false;
+  const i = S.planHist.findIndex(x => x && x.date===snap.date);
+  if(i>=0) S.planHist[i] = snap; else S.planHist.push(snap);
+  S.planHist.sort((a,b)=> String(a.date)<String(b.date)?-1:String(a.date)>String(b.date)?1:0);
+  if(S.planHist.length>180) S.planHist = S.planHist.slice(-180);
+  return true;
+}
+const CHART_ON = {assets:true, agg:true, cons:true, cash:true, capital:true};
+function chartSeriesColors(){
+  const cs = getComputedStyle(document.documentElement);
+  const text = (cs.getPropertyValue('--text')||'').trim() || '#1a1d23';
+  const sub = (cs.getPropertyValue('--sub')||'').trim() || '#6b7280';
+  const up = (cs.getPropertyValue('--up')||'').trim() || '#e5383b';
+  const accent = (cs.getPropertyValue('--accent')||'').trim() || '#2563eb';
+  return [
+    {k:'assets', name:'当前总资产', color:text, width:2.4},
+    {k:'agg', name:'激进仓', color:up, width:1.8},
+    {k:'cons', name:'保守仓', color:accent, width:1.8},
+    {k:'cash', name:'现金', color:'#9aa0aa', width:1.8},
+    {k:'capital', name:'总资金', color:sub, width:1.5, dash:[5,4]}
+  ];
+}
+function renderTrendCard(plan){
+  const n = (S.planHist||[]).length;
+  const last = n ? S.planHist[n-1] : null;
+  const b = plan.base;
+  const toB = x => conv(x, 'USD', b);
+  const latest = last ? `<div class="sub" style="margin-top:4px">${esc(last.date)}：总资产 ${fmtMoney(toB(last.assets),b)} · 激进 ${fmtMoney(toB(last.agg),b)} · 保守 ${fmtMoney(toB(last.cons),b)} · 现金 ${fmtMoney(toB(last.cash),b)}</div>` : '';
+  const hint = !n
+    ? '<div class="chart-empty">还没有走势记录。刷新行情或修改持仓后，会自动记下今天的第一笔（同一天只保留一个点）。</div>'
+    : (n===1 ? '<div class="sub">已记下今天的持仓。之后每天会自动追加一个点，同一天重复刷新会覆盖今天的记录。</div>' : `<div class="sub">已记录 ${n} 天。同一天重复刷新会覆盖当天记录。数字按当前汇总币种折算。</div>`);
+  const series = chartSeriesColors();
+  const leg = series.map(s => `<button type="button" class="${CHART_ON[s.k]===false?'off':''}" data-act="chartToggle" data-k="${s.k}"><i style="background:${s.color}"></i>${esc(s.name)}</button>`).join('');
+  return `<div class="card"><h2>仓位走势图</h2>
+    ${hint}${latest}
+    <div class="chart-wrap"><canvas id="planChart" width="320" height="210" aria-label="仓位走势图"></canvas>${n?'':'<div class="chart-empty">走势将显示在这里</div>'}</div>
+    <div class="chart-leg">${leg}</div>
+    <div class="sub" style="margin-top:8px">走势只保存在本机浏览器，不会写入云端 data.json。${n?` <a href="#" data-act="planHistClear">清除走势记录</a>`:''}</div>
+  </div>`;
+}
+function paintPlanChart(){
+  const c = $('#planChart'); if(!c) return;
+  if(curTab!=='hold') return;
+  drawPlanChart(c, S.planHist||[], S.settings.baseCur);
+}
+function fmtAxis(n, cur){
+  if(!Number.isFinite(n)) return '';
+  const sign = n<0?'-':'';
+  const a = Math.abs(n);
+  const s = SYM[cur]||'';
+  if(a>=10000) return sign+s+(a/10000).toFixed(a>=100000?0:1)+'万';
+  if(a>=1000) return sign+s+Math.round(a).toLocaleString('zh-CN');
+  return sign+s+(a>=100?a.toFixed(0):a.toFixed(1));
+}
+function drawPlanChart(canvas, hist, base){
+  if(!canvas || !canvas.getContext) return;
+  const wrap = canvas.parentElement;
+  let w = (wrap && wrap.clientWidth) || canvas.clientWidth || 0;
+  if(w<40) return;
+  const h = 210;
+  const dpr = Math.min(window.devicePixelRatio||1, 2.5);
+  canvas.width = Math.round(w*dpr);
+  canvas.height = Math.round(h*dpr);
+  canvas.style.width = w+'px';
+  canvas.style.height = h+'px';
+  const ctx = canvas.getContext('2d');
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  ctx.clearRect(0,0,w,h);
+  const cs = getComputedStyle(document.documentElement);
+  const text = (cs.getPropertyValue('--text')||'').trim() || '#1a1d23';
+  const sub = (cs.getPropertyValue('--sub')||'').trim() || '#6b7280';
+  const grid = (cs.getPropertyValue('--line')||'').trim() || '#e5e7eb';
+  const rows = (hist||[]).filter(x => x && x.date);
+  const series = chartSeriesColors().filter(s => CHART_ON[s.k]!==false);
+  const toB = x => conv(x, 'USD', base);
+  const pad = {l:52, r:10, t:12, b:28};
+  const iw = Math.max(10, w-pad.l-pad.r), ih = Math.max(10, h-pad.t-pad.b);
+  if(!rows.length || !series.length){
+    ctx.fillStyle = sub; ctx.font = '13px sans-serif'; ctx.textAlign='center';
+    ctx.fillText('暂无数据', w/2, h/2);
+    return;
+  }
+  let ymin = Infinity, ymax = -Infinity;
+  rows.forEach(r => series.forEach(s => { const v=toB(r[s.k]); if(Number.isFinite(v)){ if(v<ymin) ymin=v; if(v>ymax) ymax=v; } }));
+  if(!Number.isFinite(ymin) || !Number.isFinite(ymax)){ ymin=0; ymax=1; }
+  if(ymin===ymax){ const p = Math.abs(ymax)||1; ymin -= p*0.2; ymax += p*0.2; }
+  const span = ymax-ymin; ymin -= span*0.08; ymax += span*0.08;
+  if(ymin>0 && ymin < span*0.25) ymin = 0;
+  const yAt = v => pad.t + (1-(v-ymin)/(ymax-ymin))*ih;
+  const xAt = i => pad.l + (rows.length===1 ? iw/2 : i/(rows.length-1)*iw);
+  ctx.strokeStyle = grid; ctx.lineWidth = 1;
+  const ticks = 4;
+  ctx.font = '11px sans-serif'; ctx.fillStyle = sub; ctx.textAlign='right'; ctx.textBaseline='middle';
+  for(let i=0;i<=ticks;i++){
+    const v = ymin + (ymax-ymin)*(i/ticks);
+    const y = yAt(v);
+    ctx.beginPath(); ctx.moveTo(pad.l,y); ctx.lineTo(pad.l+iw,y); ctx.stroke();
+    ctx.fillText(fmtAxis(v, base), pad.l-6, y);
+  }
+  ctx.textAlign='center'; ctx.textBaseline='top';
+  const maxLabels = w<360?4:6;
+  const step = Math.max(1, Math.ceil((rows.length-1)/Math.max(1,maxLabels-1)));
+  rows.forEach((r,i) => {
+    if(i!==0 && i!==rows.length-1 && i%step) return;
+    ctx.fillText(String(r.date).slice(5), xAt(i), pad.t+ih+6);
+  });
+  series.forEach(s => {
+    const pts = rows.map((r,i) => { const v=toB(r[s.k]); return Number.isFinite(v)?{x:xAt(i),y:yAt(v)}:null; });
+    ctx.beginPath(); ctx.strokeStyle=s.color; ctx.lineWidth=s.width||2; ctx.lineJoin='round'; ctx.lineCap='round';
+    if(s.dash) ctx.setLineDash(s.dash); else ctx.setLineDash([]);
+    let started=false;
+    pts.forEach(pt => {
+      if(!pt){ started=false; return; }
+      if(!started){ ctx.moveTo(pt.x,pt.y); started=true; } else ctx.lineTo(pt.x,pt.y);
+    });
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle=s.color;
+    pts.forEach(pt => { if(!pt) return; ctx.beginPath(); ctx.arc(pt.x,pt.y, rows.length===1?4:2.4, 0, Math.PI*2); ctx.fill(); });
+  });
+}
+
+
+function mapMarket(v){
+  const s = String(v||'').trim().toLowerCase().replace(/\s+/g,'');
+  if(['us','usa','nyse','nasdaq','amex','美股','美国'].includes(s)) return 'us';
+  if(['hk','hkg','hkex','港股','香港'].includes(s)) return 'hk';
+  if(['cn','china','a','ashare','a股','沪','沪市','深市','北交所','上交所','深交所'].includes(s)) return 'cn';
+  if(['fund','funds','场外基金','基金','公募'].includes(s)) return 'fund';
+  if(['crypto','cryptocurrency','加密','加密货币','数字货币','数字资产'].includes(s)) return 'crypto';
+  return '';
+}
+function cleanSymbol(sym){
+  let c = String(sym||'').trim().replace(/^\$/,'').replace(/\s+/g,'');
+  c = c.replace(/^(NYSE|NASDAQ|AMEX|NYSEARCA|BATS|US|HKEX|HK|SSE|SZSE)[:.\-]/i,'');
+  c = c.replace(/\.(US|NYSE|NASDAQ|HK|SS|SZ)$/i,'');
+  return c;
+}
+function parseNumLoose(v){
+  if(v==null || v==='') return NaN;
+  if(typeof v==='number') return Number.isFinite(v)?v:NaN;
+  let s = String(v).trim();
+  if(!s || /^(n\/a|na|null|none|-|—|未知|无)$/i.test(s)) return NaN;
+  s = s.replace(/[,，]/g,'').replace(/^\s*(USD|HKD|CNY|HK\$|US\$|[￥¥$])\s*/i,'').replace(/\s*(USD|HKD|CNY|美元|港币|人民币|元|股|份|个)\s*$/i,'');
+  return num(s);
+}
+function mapBucket(v, type, code, name){
+  const s = String(v||'').trim().toLowerCase();
+  if(s && /激进|aggressive|高风险/.test(s) && !/保守/.test(s)) return 'aggressive';
+  if(s && /保守|conservative|防御|稳健|低风险/.test(s)) return 'conservative';
+  return defaultBucket(type, code, name);
+}
+function findHoldingsFences(text){
+  const out = [];
+  const re = /```(?:holdings-json|json)[^\n`]*\r?\n?([\s\S]*?)```/gi;
+  let m; const src = String(text||'');
+  while((m = re.exec(src))){
+    const head = m[0].slice(3, 40).toLowerCase();
+    const body = String(m[1]||'').trim();
+    const named = head.startsWith('holdings-json');
+    const looks = /"symbol"\s*:/.test(body) && /"qty"\s*:/.test(body);
+    if(named || looks) out.push({raw:body, named, index:m.index, end:m.index+m[0].length});
+  }
+  return out;
+}
+function stripHoldingsFences(s){
+  s = String(s||'');
+  s = s.replace(/```(?:holdings-json|json)[^\n`]*\r?\n?([\s\S]*?)```/gi, (full, body) => {
+    const head = full.slice(3, 40).toLowerCase();
+    if(head.startsWith('holdings-json') || (/"symbol"\s*:/.test(body) && /"qty"\s*:/.test(body))) return '';
+    return full;
+  });
+  s = s.replace(/```holdings-json[\s\S]*$/i, '');
+  s = s.replace(/```json[^\n`]*\r?\n?[\s\S]*$/i, full => /"symbol"\s*:/.test(full) ? '' : full);
+  return s.trim();
+}
+function parseHoldingsJson(raw){
+  let s = String(raw||'').trim();
+  if(!s) return {error:'持仓数据为空'};
+  const tidy = t => t.replace(/,\s*([\]}])/g, '$1');
+  let data;
+  try{ data = JSON.parse(tidy(s)); }
+  catch(_){
+    const i = s.indexOf('['), j = s.lastIndexOf(']');
+    if(i>=0 && j>i){ try{ data = JSON.parse(tidy(s.slice(i,j+1))); }catch(e){ return {error:'无法解析持仓数据'}; } }
+    else return {error:'无法解析持仓数据'};
+  }
+  if(data && !Array.isArray(data) && Array.isArray(data.holdings)) data = data.holdings;
+  if(data && !Array.isArray(data) && Array.isArray(data.items)) data = data.items;
+  if(!Array.isArray(data)) return {error:'持仓数据不是列表'};
+  const items = data.map(item => {
+    if(!item || typeof item!=='object') return {ok:false, error:'条目无效'};
+    const symbol0 = item.symbol || item.ticker || item.code || item.sym || item['代码'] || '';
+    const market0 = item.market || item.exchange || item.type || item.mkt || item['市场'] || '';
+    const type = mapMarket(market0);
+    const symbol = cleanSymbol(symbol0);
+    let n;
+    try{ n = normalize(type || 'auto', symbol); }
+    catch(e){ return {ok:false, symbol:String(symbol0||symbol||''), market:String(market0||''), name:String(item.name||item['名称']||''), error:e.message}; }
+    const qty = parseNumLoose(item.qty ?? item.quantity ?? item.shares ?? item.amount ?? item['数量']);
+    if(!(qty>0)) return {ok:false, symbol:n.code, market:market0, type:n.type, key:n.key, name:String(item.name||item['名称']||''), error:'数量无效'};
+    const costRaw = item.cost ?? item.costPrice ?? item.avgCost ?? item.avg ?? item['成本'] ?? item['成本价'];
+    const cost = parseNumLoose(costRaw);
+    const explicitZero = costRaw===0 || costRaw==='0';
+    const costMissing = !explicitZero && !(cost>=0);
+    const name = String(item.name || item.sname || item['名称'] || '');
+    const bucket = mapBucket(item.bucket || item['分仓'] || item['仓位'], n.type, n.code, name);
+    return {ok:true, symbol:showCode(n.type,n.code), type:n.type, key:n.key, name, qty, cost: costMissing?0:cost, costMissing, bucket, market:market0};
+  });
+  if(!items.length) return {error:'列表为空', items:[]};
+  return {items};
+}
+function parseHoldingsFromText(text){
+  const fences = findHoldingsFences(text);
+  if(!fences.length) return {items:null, error:null};
+  return parseHoldingsJson(fences[fences.length-1].raw);
+}
+function attachHoldingsDraft(m){
+  if(!m || m.role!=='assistant') return;
+  if(m.holdDraft && (m.holdDraft.applied || m.holdDraft.dismissed)) return;
+  const fences = findHoldingsFences(m.content);
+  if(!fences.length) return;
+  const parsed = parseHoldingsJson(fences[fences.length-1].raw);
+  if(parsed.items) m.holdDraft = {items:parsed.items, error:null, status:'pending'};
+  else m.holdDraft = {items:[], error:parsed.error||'无法解析持仓数据', status:'pending'};
+  if(!m.id) m.id = uid();
+}
+function readDraftEdits(card, items){
+  return (items||[]).map((it,i) => {
+    const next = Object.assign({}, it);
+    const q = card && card.querySelector('[data-hold-qty="'+i+'"]');
+    const c = card && card.querySelector('[data-hold-cost="'+i+'"]');
+    const b = card && card.querySelector('[data-hold-bucket="'+i+'"]');
+    if(q){ const v=num(q.value); if(v>0){ next.qty=v; if(next.ok!==false) next.ok=true; } else if(next.ok){ next.ok=false; next.error='数量无效'; } }
+    if(c){ const raw=c.value.trim(); if(raw===''){ /* keep missing */ } else { const v=num(c.value); if(v>=0){ next.cost=v; next.costMissing=false; } } }
+    if(b && (b.value==='aggressive'||b.value==='conservative')) next.bucket=b.value;
+    return next;
+  });
+}
+function draftToHolding(item, existing){
+  const cost = item.costMissing ? (existing && Number.isFinite(existing.cost) ? existing.cost : 0) : item.cost;
+  const {type, code} = splitKey(item.key);
+  return {
+    id: existing ? existing.id : uid(),
+    key: item.key,
+    type: item.type || type,
+    name: item.name || (existing && existing.name) || '',
+    qty: item.qty,
+    cost: Number.isFinite(cost) ? cost : 0,
+    stop: existing && existing.stop ? existing.stop : 0,
+    bucket: item.bucket || (existing && existing.bucket) || defaultBucket(item.type||type, code, item.name)
+  };
+}
+function applyHoldingsDraft(mid, mode, card){
+  const m = (S.ai.chat||[]).find(x => x && x.id===mid);
+  if(!m || !m.holdDraft) return;
+  let items = readDraftEdits(card, m.holdDraft.items||[]).filter(it => it.ok && it.key && it.qty>0);
+  if(!items.length){ toast('没有可写入的有效持仓'); return; }
+  const missingCost = items.filter(it => it.costMissing);
+  if(missingCost.length && !confirm('有 '+missingCost.length+' 条未提供成本价，将记为 0（合并时保留原成本）。确定继续？')) return;
+  if(mode==='overwrite'){
+    if(S.hold.length && !confirm('将用识别结果覆盖当前全部持仓，未出现在列表中的持仓会被删除。确定？')) return;
+    S.hold = items.map(it => draftToHolding(it, null));
+  } else {
+    const byKey = new Map(S.hold.map(h => [h.key, h]));
+    for(const it of items){
+      const ex = byKey.get(it.key);
+      const nh = draftToHolding(it, ex||null);
+      if(ex){ const i = S.hold.findIndex(h => h.id===ex.id); if(i>=0) S.hold[i] = nh; else S.hold.push(nh); }
+      else S.hold.push(nh);
+    }
+  }
+  m.holdDraft.items = items;
+  m.holdDraft.status = mode;
+  m.holdDraft.applied = true;
+  save(); renderAll(); renderChat(); refreshQuotes(true); showTab('hold');
+  toast(mode==='overwrite'?'已覆盖全部持仓':'已合并更新持仓');
+}
+function dismissHoldingsDraft(mid){
+  const m = (S.ai.chat||[]).find(x => x && x.id===mid);
+  if(m && m.holdDraft){ m.holdDraft.dismissed = true; save(); renderChat(); }
+}
+function renderHoldingsPreview(m){
+  const d = m && m.holdDraft; if(!d || d.dismissed) return '';
+  if(d.applied){
+    return `<div class="hold-preview"><div class="okbox">已写入持仓（${d.status==='overwrite'?'覆盖全部':'合并更新'}）。可到「持仓」页查看或修改。</div></div>`;
+  }
+  if(d.error && !(d.items&&d.items.length)){
+    return `<div class="hold-preview"><div class="warnbox">识别到持仓数据，但无法解析：${esc(d.error)}</div></div>`;
+  }
+  const items = d.items||[];
+  const ok = items.filter(it=>it.ok);
+  const miss = ok.filter(it=>it.costMissing).length;
+  const rows = items.map((it,i) => {
+    return `<tr${it.ok?'':' class="bad"'}>
+      <td>${esc(it.symbol||'—')}${it.name?'<div class="sub">'+esc(it.name)+'</div>':''}${it.error?'<div class="sub" style="color:var(--danger)">'+esc(it.error)+'</div>':''}</td>
+      <td>${it.ok?esc(TYPES[it.type]||it.type):esc(it.market||'—')}</td>
+      <td><input data-hold-qty="${i}" type="number" step="any" inputmode="decimal" value="${it.qty??''}" style="width:88px" ${it.ok?'':'disabled'}></td>
+      <td><input data-hold-cost="${i}" type="number" step="any" inputmode="decimal" value="${it.costMissing?'':(Number.isFinite(it.cost)?it.cost:'')}" placeholder="${it.costMissing?'未提供':''}" style="width:96px" ${it.ok?'':'disabled'}>${it.costMissing?'<div class="sub" style="color:var(--warn)">未提供</div>':''}</td>
+      <td><select data-hold-bucket="${i}" style="width:auto" ${it.ok?'':'disabled'}><option value="aggressive"${it.bucket!=='conservative'?' selected':''}>激进仓</option><option value="conservative"${it.bucket==='conservative'?' selected':''}>保守仓</option></select></td>
+    </tr>`;
+  }).join('');
+  return `<div class="hold-preview" data-mid="${esc(m.id)}">
+    <h3>识别到 ${ok.length} 条持仓，确认后才会写入本机</h3>
+    ${miss?`<div class="warnbox">有 ${miss} 条未提供成本价，已标出。可在写入前补填；留空则记为 0（合并时保留已有成本）。</div>`:''}
+    <div style="overflow:auto"><table class="tbl"><thead><tr><th>代码</th><th>市场</th><th>数量</th><th>成本价</th><th>分仓</th></tr></thead><tbody>${rows}</tbody></table></div>
+    <div class="row">
+      <button class="pri sm" data-act="holdApply" data-mode="overwrite" data-mid="${esc(m.id)}" ${ok.length?'':'disabled'}>覆盖全部持仓</button>
+      <button class="sm" data-act="holdApply" data-mode="merge" data-mid="${esc(m.id)}" ${ok.length?'':'disabled'}>合并更新（同代码覆盖，其余保留）</button>
+      <button class="sm" data-act="holdApplyCancel" data-mid="${esc(m.id)}">取消</button>
+    </div>
+    <div class="sub">写入后只保存在这台设备的浏览器里，不会上传到 GitHub。</div>
+  </div>`;
+}
+
 /* ============ 持仓 ============ */
 function computePortfolio(){
   const base = S.settings.baseCur; let mv=0, cost=0, day=0, missing=0;
@@ -865,7 +1386,7 @@ function computePortfolio(){
   return {rows, mv, cost, pl:mv-cost, plp: cost>0?(mv-cost)/cost*100:NaN, day, missing, base};
 }
 function renderHold(){
-  const el = $('#tab-hold'); const P = computePortfolio(); const b = P.base;
+  const el = $('#tab-hold'); const P = computePlan(); const b = P.base;
   el.innerHTML = `
   <div class="card"><h2>资产汇总
     <span class="grow"></span><select style="width:auto" id="baseCur"><option value="CNY">人民币</option><option value="USD">美元</option><option value="HKD">港币</option></select></h2>
@@ -878,16 +1399,20 @@ function renderHold(){
     ${P.missing?`<div class="note">有 ${P.missing} 个持仓暂无价格，未计入汇总。可在持仓里点开手动输入价格。</div>`:''}
     <div class="sub" style="margin-top:8px">${esc(fxLine())} <a href="#" data-act="fxEdit">修改汇率</a></div>
   </div>
+  ${renderPlanCard(P)}
+  ${renderTrendCard(P)}
   <div class="card"><h2>持仓明细 <span class="grow"></span><button class="pri sm" data-act="holdAdd">＋ 添加持仓</button></h2>
   ${P.rows.length ? P.rows.map(r => { const l = quoteLine(r.h.key, r.h.name); const s=SYM[r.cur];
+    const bk = r.bucket==='conservative'?'<span class="badge cons">保守仓</span>':'<span class="badge agg">激进仓</span>';
     return `<div class="item" data-act="holdEdit" data-id="${r.h.id}" style="align-items:flex-start"><div class="grow">
-      <div class="nm">${l.name}${l.badges}</div><div class="sub">${l.meta}</div>
+      <div class="nm">${l.name}${l.badges}${bk}</div><div class="sub">${l.meta}</div>
       <div class="sub">数量 ${fmtQty(r.h.qty)} · 成本 ${s}${fmt(r.h.cost)}</div>${l.err}</div>
       <div class="px"><b>${r.p?fmtMoney(r.cv,b):'—'}</b><span class="${cls(r.pl)}">${r.p?fmtMoney(r.pl,r.cur)+' ('+fmtPct(r.plp)+')':'无价格'}</span>
       <div class="sub">现价 ${r.p?s+fmt(r.p.price):'—'}</div></div></div>`; }).join('')
-    : '<div class="empty">还没有持仓。点“添加持仓”，填写代码、数量和成本价。</div>'}
+    : '<div class="empty">还没有持仓。可点“添加持仓”手工填写，或到「AI」页用「截图识别持仓」确认后写入。</div>'}
   </div>`;
   $('#baseCur').value = b;
+  if(curTab==='hold') requestAnimationFrame(paintPlanChart);
 }
 
 /* ============ 日历 ============ */
@@ -943,6 +1468,7 @@ function renderSet(){
     <label class="f">自动刷新行情</label><select id="sRef"><option value="0">关闭</option><option value="30">30 秒</option><option value="60">60 秒</option><option value="180">3 分钟</option><option value="300">5 分钟</option></select>
     <label class="f">事件提前提醒</label><select id="sLead"><option value="0">准时</option><option value="1">提前 1 小时</option><option value="24">提前 1 天</option><option value="72">提前 3 天</option></select>
   </div>
+  ${planSettingsCard('s')}
   <div class="card"><h2>止损预警（只在本机计算）</h2>
     <label class="row" style="gap:8px"><input type="checkbox" id="alOn" ${st.alert.on?'checked':''}> 开启预警</label>
     <label class="f">相对成本亏损达到（%）</label><input id="alLoss" type="number" step="any" inputmode="decimal" value="${st.alert.lossPct}">
@@ -1009,10 +1535,12 @@ function contextText(){
   const d = new Date(); L.push(`【当前时间】${d.toLocaleString('zh-CN',{hour12:false})}（北京时间）`);
   if(S.watch.length){ L.push('【自选】'); S.watch.forEach(w => { const p = priceOf(w.key); const {type,code}=splitKey(w.key);
     L.push(`- ${nameOf(w.key,w.name)}（${TYPES[type]} ${showCode(type,code)}）：${p?SYM[CUR[type]]+fmt(p.price)+(Number.isFinite(p.pct)?'，涨跌 '+fmtPct(p.pct):'')+(p.manual?'（手动价）':''):'暂无价格'}`); }); }
-  if(S.hold.length){ const P = computePortfolio(); L.push(`【持仓】（汇总币种 ${base}）`);
+  const plan = computePlan();
+  if(S.hold.length){ const P = plan; L.push(`【持仓】（汇总币种 ${base}）`);
     P.rows.forEach(r => { const {type,code}=splitKey(r.h.key);
-      L.push(`- ${nameOf(r.h.key,r.h.name)}（${showCode(type,code)}）：数量 ${fmtQty(r.h.qty)}，成本 ${SYM[r.cur]}${fmt(r.h.cost)}${r.p?`，现价 ${SYM[r.cur]}${fmt(r.p.price)}，市值 ${fmtMoney(r.cv,base)}，盈亏 ${fmtPct(r.plp)}`:'，暂无价格'}`); });
-    L.push(`- 汇总：总市值 ${fmtMoney(P.mv,base)}，总成本 ${fmtMoney(P.cost,base)}，总盈亏 ${fmtMoney(P.pl,base)}（${fmtPct(P.plp)}）`); }
+      L.push(`- ${nameOf(r.h.key,r.h.name)}（${showCode(type,code)}）：数量 ${fmtQty(r.h.qty)}，成本 ${SYM[r.cur]}${fmt(r.h.cost)}，分仓 ${r.bucket==='conservative'?'保守仓':'激进仓'}${r.p?`，现价 ${SYM[r.cur]}${fmt(r.p.price)}，市值 ${fmtMoney(r.cv,base)}，盈亏 ${fmtPct(r.plp)}`:'，暂无价格'}`); });
+    L.push(`- 汇总：总市值 ${fmtMoney(P.mv,base)}，总成本 ${fmtMoney(P.costAll,base)}，总盈亏 ${fmtMoney(P.pl,base)}（${fmtPct(P.plp)}）`); }
+  L.push(`【资金规划】总资金 ${fmtMoney(plan.capUsd,'USD')}（折合 ${fmtMoney(plan.capital,base)}），持仓成本 ${fmtMoney(plan.costAll,base)}，现金 ${fmtMoney(plan.cash,base)}（总资金−成本），当前总资产 ${fmtMoney(plan.assets,base)}（现金+市值）；激进仓市值 ${fmtMoney(plan.aggMv,base)}，保守仓市值 ${fmtMoney(plan.consMv,base)}。目标比例：激进 ${plan && S.settings.targetAggressive}% / 保守 ${S.settings.targetConservative}% / 现金 ${S.settings.targetCash}%。`);
   const ev = S.events.filter(e => { const x = dayDiff(e); return x>=0 && x<=14; }).sort((a,b)=>evDue(a)-evDue(b));
   if(ev.length){ L.push('【未来14天事件】'); ev.forEach(e => L.push(`- ${e.date}${e.time?' '+e.time:''} ${e.title}${e.note?'（'+e.note+'）':''}`)); }
   if(CLOUD && CLOUD.radar && CLOUD.radar.market_summary){ const m = CLOUD.radar.market_summary;
@@ -1220,8 +1748,13 @@ function extractText(k, j, delta){
 let chatAbort = null;
 function renderChat(){
   const box = $('#chatbox'); const msgs = S.ai.chat;
-  box.innerHTML = msgs.length ? msgs.map(m => `<div class="msg ${m.role==='user'?'u':'a'}"><span class="who">${m.role==='user'?'我':esc(m.who||'AI')}</span>${renderMsgImgs(m)}<div class="b ${m.role==='user'?'':'md'}">${m.role==='user'?esc(m.content):markdown(m.content)}</div></div>`).join('')
-    : '<div class="empty">选一个 AI，输入问题。可点“插入自选+持仓”，或点“插入图片”/粘贴/拖入截图让 AI 识图。</div>';
+  (msgs||[]).forEach(m => { if(m && m.role==='assistant'){ if(!m.id) m.id = uid(); attachHoldingsDraft(m); } });
+  box.innerHTML = msgs.length ? msgs.map(m => {
+    const body = m.role==='user' ? esc(m.content) : markdown(stripHoldingsFences(m.content));
+    const preview = m.role==='assistant' ? renderHoldingsPreview(m) : '';
+    return `<div class="msg ${m.role==='user'?'u':'a'}"><span class="who">${m.role==='user'?'我':esc(m.who||'AI')}</span>${renderMsgImgs(m)}<div class="b ${m.role==='user'?'':'md'}">${body}</div>${preview}</div>`;
+  }).join('')
+    : '<div class="empty">选一个 AI，输入问题。可点“插入自选+持仓”，或点“📷 截图识别持仓”/插入图片，让 AI 识别后确认写入持仓。</div>';
   box.scrollTop = box.scrollHeight;
 }
 function renderAIHead(){
@@ -1243,11 +1776,11 @@ async function sendChat(){
   const images = pendingImgs.slice(); pendingImgs = []; renderThumbs();
   const umsg = {role:'user', content:text}; if(images.length) umsg.images = images;
   S.ai.chat.push(umsg); inp.value = '';
-  const amsg = {role:'assistant', content:'', who:PROVIDERS[k].name+' · '+aiConf(k).model};
+  const amsg = {role:'assistant', id:uid(), content:'', who:PROVIDERS[k].name+' · '+aiConf(k).model};
   S.ai.chat.push(amsg); renderChat();
   const btn = $('#btnSend'); btn.textContent = '停止'; chatAbort = new AbortController();
   const history = historyForApi(S.ai.chat.slice(0,-1).slice(-20).filter(m => (m.content && String(m.content).trim()) || hasImages(m)));
-  let system = S.ai.system || DEFAULT_SYSTEM;
+  let system = (S.ai.system || DEFAULT_SYSTEM) + '\n\n' + HOLDINGS_INSTRUCTION;
   if(S.ai.ctxAuto) system += '\n\n以下是用户当前的自选、持仓与事件数据（来自其本地应用）：\n' + contextText();
   let lastRender = 0;
   try{
@@ -1257,6 +1790,7 @@ async function sendChat(){
     else amsg.content = (amsg.content?amsg.content+'\n\n':'') + '⚠️ ' + e.message;
   }
   chatAbort = null; btn.textContent = '发送';
+  attachHoldingsDraft(amsg);
   S.ai.chat = S.ai.chat.slice(-60); await persistState(); renderChat();
 }
 
@@ -1284,12 +1818,14 @@ function showTab(t){
   document.querySelectorAll('.tab').forEach(s => s.classList.toggle('on', s.id==='tab-'+t));
   document.querySelectorAll('#tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab===t));
   if(t==='radar') renderRadar(); if(t==='set') renderSet(); if(t==='ai'){ renderAIHead(); renderChat(); }
+  if(t==='hold') requestAnimationFrame(paintPlanChart);
   window.scrollTo(0,0);
 }
 function applyTheme(){
   const t = S.settings.theme; const dark = t==='dark' || (t==='auto' && matchMedia('(prefers-color-scheme: dark)').matches);
   document.documentElement.dataset.theme = dark?'dark':'light'; document.documentElement.dataset.up = S.settings.upColor;
   document.querySelector('meta[name=theme-color]').content = dark?'#0f1115':'#f4f5f7';
+  if(typeof paintPlanChart==='function' && curTab==='hold') requestAnimationFrame(paintPlanChart);
 }
 function download(name, text, type){
   const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text],{type})); a.download = name; document.body.appendChild(a); a.click();
@@ -1385,6 +1921,11 @@ const ACTIONS = {
     S.settings.notify = p==='granted'; save(); renderCal(); toast(p==='granted'?'已开启（页面保持打开时有效）':'未获得通知权限，将只显示页面内提醒');
   },
   inject: () => { const inp = $('#chatIn'); inp.value = (inp.value?inp.value+'\n\n':'') + '以下是我当前的数据：\n' + contextText() + '\n\n'; inp.focus(); },
+  holdShot: () => { const inp = $('#chatIn'); const p = HOLD_SHOT_PROMPT; if(!String(inp.value||'').includes('更新到我的持仓')) inp.value = (inp.value?inp.value.trim()+'\n':'') + p; inp.focus(); if(!pendingImgs.length){ toast('请先插入或粘贴持仓截图，再点发送'); const f=$('#imgFile'); if(f) f.click(); } },
+  holdApply: a => applyHoldingsDraft(a.dataset.mid, a.dataset.mode, a.closest('.hold-preview')),
+  holdApplyCancel: a => dismissHoldingsDraft(a.dataset.mid),
+  chartToggle: a => { const k=a.dataset.k; if(!k) return; CHART_ON[k] = CHART_ON[k]===false; paintPlanChart(); const on = CHART_ON[k]!==false; a.classList.toggle('off', !on); },
+  planHistClear: () => { if(!(S.planHist||[]).length) return; if(!confirm('清除本机保存的仓位走势记录？持仓本身不会被删除。')) return; S.planHist = []; save(); renderHold(); toast('已清除走势记录'); },
   attachImg: () => { const f = $('#imgFile'); if(f) f.click(); },
   rmImg: a => { const i = +a.dataset.i; if(Number.isInteger(i) && i>=0){ pendingImgs.splice(i,1); renderThumbs(); } },
   viewImg: a => { if(a && a.src) openDlg('图片', '<img src="'+esc(a.src)+'" alt="" style="width:100%;border-radius:8px">', ''); },
@@ -1433,16 +1974,20 @@ function holdDialog(h){
     (isNew ? `<label class="f">品种</label>${symInput('hAdd')}` : `<div><b>${esc(nameOf(key,h.name))}</b> <span class="sub">${esc(TYPES[t.type])} · ${esc(showCode(t.type,t.code))}</span></div>`) +
     `<label class="f">数量（份/股/个）</label><input id="hQ" type="number" step="any" inputmode="decimal" value="${h?h.qty:''}">
      <label class="f">成本价（每单位${t?'，'+CUR[t.type]:'，按该品种的计价货币'}）</label><input id="hC" type="number" step="any" inputmode="decimal" value="${h?h.cost:''}">
+     <label class="f">分仓</label><select id="hB"><option value="auto">自动（按品种判断）</option><option value="aggressive">激进仓</option><option value="conservative">保守仓</option></select>
+     <div class="sub">杠杆 ETF、个股默认激进仓；宽基指数、债券/红利类默认保守仓，可改。</div>
      <label class="f">止损价（可选，跌到这个价格时在「雷达」里提醒；留空不用）</label><input id="hS" type="number" step="any" inputmode="decimal" value="${h&&h.stop?h.stop:''}">
      ${!isNew?`<label class="f">手动价格（仅行情失败时使用，留空不用）</label><input id="hP" type="number" step="any" inputmode="decimal" value="${S.manual[key]?S.manual[key].price:''}">`:''}
      <div class="sub" style="margin-top:6px">计价货币：A股/基金=人民币，港股=港币，美股/加密=美元（加密按 USDT 计）。</div>`,
     '保存', () => {
       const qty = num($('#hQ').value), cost = num($('#hC').value);
       if(!(qty>0)) throw new Error('请填写数量'); if(!(cost>=0)) throw new Error('请填写成本价');
-      if(isNew){ const n = bindSymState('hAdd').get();
-        S.hold.push({id:uid(), key:n.key, type:n.type, name:n.name||'', qty, cost, stop:(num($('#hS').value)>0?num($('#hS').value):0)}); save(); renderAll(); refreshQuotes(true); }
-      else { h.qty = qty; h.cost = cost; h.stop = (num($('#hS').value)>0?num($('#hS').value):0); const p = num($('#hP').value); if(p>0) S.manual[key]={price:p}; else delete S.manual[key]; save(); renderAll(); }
+      const pickB = () => { const v = $('#hB').value; return (v==='aggressive'||v==='conservative') ? v : ''; };
+      if(isNew){ const n = bindSymState('hAdd').get(); const bucket = pickB() || defaultBucket(n.type, n.code, n.name);
+        S.hold.push({id:uid(), key:n.key, type:n.type, name:n.name||'', qty, cost, stop:(num($('#hS').value)>0?num($('#hS').value):0), bucket}); save(); renderAll(); refreshQuotes(true); }
+      else { h.qty = qty; h.cost = cost; h.stop = (num($('#hS').value)>0?num($('#hS').value):0); h.bucket = pickB() || defaultBucket(t.type, t.code, h.name); const p = num($('#hP').value); if(p>0) S.manual[key]={price:p}; else delete S.manual[key]; save(); renderAll(); }
     }, isNew?'':`<button class="dang" data-d="del">删除</button>`);
+  if($('#hB')) $('#hB').value = (!isNew && (h.bucket==='aggressive'||h.bucket==='conservative')) ? h.bucket : (isNew ? 'auto' : holdBucket(h));
   if(!isNew) dlg._del = () => { S.hold = S.hold.filter(x=>x.id!==h.id); save(); renderAll(); };
   else bindSymState('hAdd');
 }
@@ -1451,6 +1996,7 @@ function holdDialog(h){
 document.addEventListener('change', e => {
   const t = e.target;
   if(t.id==='baseCur'){ S.settings.baseCur = t.value; save(); renderHold(); }
+  else if(applyPlanField(t)){ return; }
   else if(t.id==='sTheme'){ S.settings.theme = t.value; save(); applyTheme(); }
   else if(t.id==='sUp'){ S.settings.upColor = t.value; save(); applyTheme(); }
   else if(t.id==='sRef'){ S.settings.refreshSec = +t.value; save(); setupTimer(); }
@@ -1493,6 +2039,7 @@ function setupTimer(){
   if(s>0) timer = setInterval(() => { if(document.visibilityState==='visible' && (curTab==='watch'||curTab==='hold') && allKeys().length) refreshQuotes(true); }, s*1000);
 }
 matchMedia('(prefers-color-scheme: dark)').addEventListener && matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyTheme);
+window.addEventListener('resize', () => { if(curTab==='hold') paintPlanChart(); });
 document.addEventListener('visibilitychange', () => { if(document.visibilityState==='visible'){ checkReminders(); } });
 
 /* ============ 启动 ============ */
@@ -1663,7 +2210,7 @@ function startGate(){
 }
 startGate();
 
-window.__app = { get S(){return S;}, get CLOUD(){return CLOUD;}, get CP(){return CP;}, cloudKey, loadCloud, computeAlerts, renderRadar, normalize, priceOf, computePortfolio, markdown, contextText, refreshQuotes, callAI, smartSearch, supportsVision, toOpenAIMessage, toGeminiParts, dataUrlOf, historyForApi, hasImages, DEFAULT_IMG_PROMPT, compressImage, get pendingImgs(){return pendingImgs;} };
+window.__app = { get S(){return S;}, get CLOUD(){return CLOUD;}, get CP(){return CP;}, cloudKey, loadCloud, computeAlerts, renderRadar, normalize, priceOf, computePortfolio, computePlan, recordPlanSnapshot, paintPlanChart, defaultBucket, holdBucket, parseHoldingsFromText, parseHoldingsJson, stripHoldingsFences, applyHoldingsDraft, markdown, contextText, refreshQuotes, callAI, smartSearch, supportsVision, toOpenAIMessage, toGeminiParts, dataUrlOf, historyForApi, hasImages, DEFAULT_IMG_PROMPT, compressImage, HOLDINGS_INSTRUCTION, get pendingImgs(){return pendingImgs;} };
 </script>
 </body>
 </html>
