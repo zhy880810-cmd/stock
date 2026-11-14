@@ -1,8 +1,8 @@
 {
   "example": false,
   "schema": 2,
-  "updated_at": "2026-11-14T10:19:34Z",
-  "updated_at_beijing": "2026-11-14 18:19",
+  "updated_at": "2026-11-14T10:54:55Z",
+  "updated_at_beijing": "2026-11-14 18:54",
   "watchlist": [
     "SPYM",
     "QQQM",
@@ -613,7 +613,7 @@
           "price": 264.32,
           "change_pct": 4.29,
           "date": "2026-11-13",
-          "reason": ""
+          "reason": "杰富瑞上调至买入，目标价从232美元升至305美元。"
         },
         {
           "ticker": "GPN",
@@ -631,7 +631,7 @@
           "price": 534.06,
           "change_pct": -8.75,
           "date": "2026-11-13",
-          "reason": ""
+          "reason": "黄仁勋辞职后芯片股反转下跌，回吐前日涨幅。"
         },
         {
           "ticker": "DELL",
@@ -639,7 +639,7 @@
           "price": 344.53,
           "change_pct": -7.18,
           "date": "2026-11-13",
-          "reason": ""
+          "reason": "英伟达换帅后，AI服务器板块跟随芯片股下跌。"
         },
         {
           "ticker": "CSCO",
@@ -647,7 +647,7 @@
           "price": 95.64,
           "change_pct": -6.24,
           "date": "2026-11-13",
-          "reason": ""
+          "reason": "业绩超预期，但毛利率下降250个基点引发抛售。"
         }
       ],
       "error": null
@@ -786,8 +786,21 @@
         "source": "technical"
       }
     },
-    "big_news": [],
-    "ai_stale": true,
+    "big_news": [
+      {
+        "summary": "英伟达宣布黄仁勋立即辞去首席执行官，由首席财务官科莱特·克雷斯担任临时首席执行官。",
+        "url": "https://nvidianews.nvidia.com/news/nvidia-announces-ceo-transition"
+      },
+      {
+        "summary": "美国10月生产者物价指数环比上升0.3%，同比上升6.5%，为2022年11月以来最大同比升幅。",
+        "url": "https://www.bls.gov/ppi/news-release/"
+      },
+      {
+        "summary": "旧金山联储行长戴利表示，其倾向认为美联储仍需加息。",
+        "url": "https://www.reuters.com/business/fed-likely-need-raise-rates-amid-worsening-inflation-daly-2026-11-13/"
+      }
+    ],
+    "ai_stale": false,
     "calendar": {
       "nvda_earnings": "2026-11-18",
       "adbe_earnings_beijing": "2026-12-10",
@@ -804,17 +817,70 @@
     },
     "watchlist_news": [],
     "unusual_movers": [],
-    "big_news": [],
+    "big_news": [
+      {
+        "summary": "英伟达宣布黄仁勋立即辞去首席执行官，由首席财务官科莱特·克雷斯担任临时首席执行官。",
+        "url": "https://nvidianews.nvidia.com/news/nvidia-announces-ceo-transition"
+      },
+      {
+        "summary": "美国10月生产者物价指数环比上升0.3%，同比上升6.5%，为2022年11月以来最大同比升幅。",
+        "url": "https://www.bls.gov/ppi/news-release/"
+      },
+      {
+        "summary": "旧金山联储行长戴利表示，其倾向认为美联储仍需加息。",
+        "url": "https://www.reuters.com/business/fed-likely-need-raise-rates-amid-worsening-inflation-daly-2026-11-13/"
+      }
+    ],
     "swap_proposal": null,
     "opportunities": [],
     "sources": [
       {
-        "title": "1",
-        "url": "https://www.reuters.com/business/nasdaq-futures-dip-nvidia-tumult-keeps-investors-edge-2026-11-13/"
+        "title": "",
+        "url": "https://nvidianews.nvidia.com/news/nvidia-announces-ceo-transition"
       },
       {
-        "title": "2",
-        "url": "https://www.bloomberg.com/news/articles/2026-11-13/wall-street-s-wild-ride-delivers-big-paydays-and-bigger-bruises"
+        "title": "",
+        "url": "https://www.bls.gov/ppi/news-release/"
+      },
+      {
+        "title": "",
+        "url": "https://www.reuters.com/business/fed-likely-need-raise-rates-amid-worsening-inflation-daly-2026-11-13/"
+      },
+      {
+        "title": "https://www.eoption.com/mid-morning-look-november-13-2026/",
+        "url": "https://www.eoption.com/mid-morning-look-november-13-2026/"
+      },
+      {
+        "title": "https://quant500.com/sp500-gainers-losers",
+        "url": "https://quant500.com/sp500-gainers-losers"
+      },
+      {
+        "title": "https://clearank.com/stock/charter-communications-chtr/",
+        "url": "https://clearank.com/stock/charter-communications-chtr/"
+      },
+      {
+        "title": "https://www.reuters.com/business/us-treasury-chief-says-fed-should-not-hike-rates-over-energy-shock-tied-iran-war-2026-11-13/",
+        "url": "https://www.reuters.com/business/us-treasury-chief-says-fed-should-not-hike-rates-over-energy-shock-tied-iran-war-2026-11-13/"
+      },
+      {
+        "title": "https://www.gurufocus.com/stock/GPN/article",
+        "url": "https://www.gurufocus.com/stock/GPN/article"
+      },
+      {
+        "title": "https://www.chartmill.com/stock/markets/usa/movers/top-gainers/sp-500",
+        "url": "https://www.chartmill.com/stock/markets/usa/movers/top-gainers/sp-500"
+      },
+      {
+        "title": "https://www.benzinga.com/markets/equities/26/11/63259862/stock-market-today-amd-nvidia-chip-selloff-cisco-modine-november-13",
+        "url": "https://www.benzinga.com/markets/equities/26/11/63259862/stock-market-today-amd-nvidia-chip-selloff-cisco-modine-november-13"
+      },
+      {
+        "title": "https://www.nextearningsdate.com/adbe.html",
+        "url": "https://www.nextearningsdate.com/adbe.html"
+      },
+      {
+        "title": "https://www.marketbeat.com/all-access/ratings-screener/details/2499769/",
+        "url": "https://www.marketbeat.com/all-access/ratings-screener/details/2499769/"
       }
     ]
   },
@@ -823,8 +889,8 @@
   "ai": {
     "provider": "grok",
     "model": "grok-4.7",
-    "ok": false,
-    "error": "AI 返回的内容里找不到 JSON"
+    "ok": true,
+    "error": null
   },
   "disclaimer": "仅供学习与记录参考，不构成投资建议。"
 }
