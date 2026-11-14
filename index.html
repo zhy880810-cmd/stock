@@ -114,7 +114,7 @@ nav.tabs button .cnt{position:absolute;top:4px;left:calc(50% + 6px);background:v
 .msg .imgs{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 6px;max-width:94%}
 .msg.u .imgs{align-self:flex-end;justify-content:flex-end}
 .msg .imgs img{max-width:160px;max-height:120px;border-radius:8px;border:1px solid var(--line);object-fit:cover;cursor:pointer}
-#imgFile{display:none}
+#imgFile{position:absolute;left:0;top:0;width:1px!important;height:1px!important;min-height:0!important;margin:-1px;padding:0;border:0;opacity:0;overflow:hidden;clip:rect(0 0 0 0);pointer-events:none}
 .composer .hint{font-size:12px;color:var(--sub);margin-top:6px}
 
 .badge.agg{background:rgba(229,56,59,.15);color:var(--up)}
@@ -137,6 +137,26 @@ nav.tabs button .cnt{position:absolute;top:4px;left:calc(50% + 6px);background:v
 .hold-preview tr.bad{opacity:.65}
 .hold-preview input,.hold-preview select{min-height:34px;padding:4px 8px;font-size:13px}
 .hold-preview .row{margin-top:8px}
+.hold-preview.hold-import{align-self:stretch;width:100%;border:2px solid var(--accent);background:var(--soft);padding:14px;margin-top:10px;box-shadow:0 2px 12px rgba(37,99,235,.2)}
+.hold-preview.hold-import h3{font-size:16px;margin:0 0 8px}
+.hold-preview.hold-import .tbl{background:var(--card);border-radius:8px}
+.hold-preview.hold-import .hold-go{flex:1 1 100%;min-height:52px;font-size:17px;font-weight:700;border-radius:12px}
+.hold-preview.hold-import .row .sm{flex:1 1 auto}
+.hold-preview.hold-import .hold-help{font-size:12px;color:var(--sub);margin-top:8px;line-height:1.5}
+.shot-hint{display:none;margin:8px 0 0;padding:10px 12px;border-radius:10px;font-size:14px;line-height:1.5;border-left:4px solid var(--accent);background:var(--soft)}
+.shot-hint.ok{border-left-color:var(--down);background:rgba(22,163,74,.12)}
+.shot-hint.warn{border-left-color:var(--warn);background:rgba(245,158,11,.14)}
+.composer .shot-tip{font-size:12px;color:var(--sub);margin-top:6px;line-height:1.5}
+#btnSend.pulse{animation:sendPulse 1s ease-in-out 3}
+@keyframes sendPulse{0%,100%{box-shadow:0 0 0 0 rgba(37,99,235,.55)}50%{box-shadow:0 0 0 8px rgba(37,99,235,0)}}
+.snap-out{width:100%;min-height:96px;font:12px/1.4 ui-monospace,Menlo,Consolas,monospace;word-break:break-all}
+.snap-copy{width:100%;min-height:52px;font-size:17px;font-weight:700;margin-top:8px;border-radius:12px}
+.snap-qr{margin:10px 0 0;text-align:center}
+.snap-qr canvas{max-width:100%;height:auto;background:#fff;padding:6px;border-radius:8px;image-rendering:pixelated}
+.snap-sec{border-top:1px solid var(--line);margin-top:14px;padding-top:10px}
+.hold-col{display:contents}
+.rd-cols{display:block}
+.rd-col{display:block;min-width:0}
 
 .chart-wrap{position:relative;width:100%;height:210px;margin-top:6px}
 .chart-wrap canvas{width:100%;height:210px;display:block}
@@ -207,6 +227,19 @@ details.mini[open] > summary::before{content:"▾ "}
 .idx.slim div{padding:6px}
 .idx.slim b{font-size:14px}
 @media(min-width:720px){.sum{grid-template-columns:repeat(4,1fr)}}
+@media(min-width:1024px){
+  main{max-width:1280px;padding:16px 24px 28px}
+  .card,details.fold{min-width:0}
+  .rd-cols{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:0 16px;align-items:start}
+  .rd-cols.one{grid-template-columns:minmax(0,1fr)}
+  .rd-col .sum,.hold-col .sum{grid-template-columns:repeat(2,1fr)}
+  .rd-col .tbl,.hold-col .ptable .tbl{max-width:100%}
+  .rd-col details.fold>.card,.rd-col details.fold>div{overflow-x:auto}
+  .hold-grid{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,7fr);gap:0 16px;align-items:start}
+  .hold-col{display:block;min-width:0}
+  #tab-radar.layout-edit #radarMods{max-width:860px;margin:0 auto}
+  .chatbox{max-height:60vh}
+}
 
 body.gated{overflow:hidden}
 body.gated header.top,body.gated main,body.gated nav.tabs,body.gated #dlg,body.gated #toast{display:none}
@@ -240,8 +273,9 @@ body.gated #gate{display:flex}
       <div class="chips" id="quick"></div>
       <div id="composer" class="composer">
       <div class="thumbs" id="imgPreviews"></div>
+      <div class="shot-hint" id="shotHint" role="status" aria-live="polite"></div>
       <textarea id="chatIn" rows="3" placeholder="问点什么…（可粘贴或拖入图片，Ctrl/⌘+Enter 发送）"></textarea>
-      <input type="file" id="imgFile" accept="image/jpeg,image/png,image/webp,image/gif,.jpg,.jpeg,.png,.webp,.gif" multiple>
+      <input type="file" id="imgFile" accept="image/jpeg,image/png,image/webp,image/gif,.jpg,.jpeg,.png,.webp,.gif" multiple tabindex="-1" aria-hidden="true">
       <div class="row" style="margin-top:8px">
         <button class="sm" data-act="inject">📎 插入自选+持仓</button>
         <button class="sm" data-act="holdShot">📷 截图识别持仓</button>
@@ -251,6 +285,7 @@ body.gated #gate{display:flex}
         <button class="sm" data-act="chatClear">清空</button>
         <button class="pri" id="btnSend" data-act="send">发送</button>
       </div>
+      <div class="shot-tip">📷 识别持仓：点「截图识别持仓」选图；也可直接 Ctrl+V / 长按粘贴截图，或把图片拖进输入框。识别完成后，回复气泡下方会出现「一键导入/覆盖到本地持仓」按钮，点了才会写入。</div>
       <div class="hint">图片只存在本机浏览器的对话记录里，不会上传到 GitHub，也不会写入 data.json。网页直连 Gemini 等接口常因跨域失败，不影响云端雷达；连不上可改用 DeepSeek。</div>
       </div>
     </div>
@@ -1981,8 +2016,10 @@ function renderFullPosNote(){
 }
 
 let CHART_LAYOUT=null, CHART_SEL=null;
+function chartScope(){ return document.querySelector('#tab-'+curTab) || document; }
+function chartEl(){ return chartScope().querySelector('#planChart'); }
 function bindPlanChartEvents(){
-  const c = $('#planChart'); if(!c || c._bound) return;
+  const c = chartEl(); if(!c || c._bound) return;
   c._bound = true;
   const pick = ev => {
     if(!CHART_LAYOUT || !CHART_LAYOUT.rows || !CHART_LAYOUT.rows.length) return;
@@ -2000,7 +2037,7 @@ function bindPlanChartEvents(){
   c.addEventListener('touchstart', pick, {passive:true});
 }
 function renderChartDetail(){
-  const el = $('#planChartDetail'); if(!el) return;
+  const el = chartScope().querySelector('#planChartDetail'); if(!el) return;
   const rows = (S.planHist||[]).filter(x=>x&&x.date);
   const i = (CHART_SEL==null) ? rows.length-1 : CHART_SEL;
   const snap = rows[i];
@@ -2118,12 +2155,26 @@ function renderPlanBriefBlocks(){
     moreNews: { title:'自选消息、异动与来源', html: renderMoreNewsCard() }
   };
   const lay = loadRadarLayout();
-  const parts = lay.order.map(id => {
-    const d = defs[id]; if(!d) return '';
-    return foldBox(id, d.title, d.html, d.hint||'', d.extraCls||'', { defaultOpen:!!d.defaultOpen, allowEmpty:!!radarLayoutEdit, actions:d.actions||'' });
+  const boxes = lay.order.map(id => {
+    const d = defs[id]; if(!d) return null;
+    const html = foldBox(id, d.title, d.html, d.hint||'', d.extraCls||'', { defaultOpen:!!d.defaultOpen, allowEmpty:!!radarLayoutEdit, actions:d.actions||'' });
+    return html ? {id, html} : null;
   }).filter(Boolean);
-  return `<div id="radarMods">${parts.join('')}</div>`;
+  if(!isWideDesk() || radarLayoutEdit) return `<div id="radarMods">${boxes.map(b => b.html).join('')}</div>`;
+  const L = [], R = [];
+  let wl = 0, wr = 0;
+  boxes.forEach(b => { const c = RADAR_DESK_COL[b.id]; if(c==='L') wl += b.html.length; else if(c==='R') wr += b.html.length; });
+  boxes.forEach(b => {
+    let c = RADAR_DESK_COL[b.id];
+    if(!c){ c = wl <= wr ? 'L' : 'R'; if(c==='L') wl += b.html.length; else wr += b.html.length; }
+    (c==='L' ? L : R).push(b.html);
+  });
+  const one = (!L.length || !R.length);
+  return `<div id="radarMods" class="rd-cols${one?' one':''}"><div class="rd-col">${L.join('')}</div><div class="rd-col">${R.join('')}</div></div>`;
 }
+const RADAR_DESK_COL = { holdings:'L', buys:'L', lev:'L', sltp:'L', alerts:'L', news:'R', dca:'R', movers:'R', overnight:'R', moreNews:'R' };
+const WIDE_MQ = window.matchMedia ? matchMedia('(min-width:1024px)') : null;
+function isWideDesk(){ return !!(WIDE_MQ && WIDE_MQ.matches); }
 
 function renderRadar(){
   const el = $('#tab-radar'); if(!el) return;
@@ -2162,7 +2213,7 @@ function renderRadar(){
     H.push(`<div class="card rd"><h2>🚨 提醒</h2>${alerts.map(a=>`<div class="alert">${esc(a.text)}</div>`).join('')}</div>`);
   }
   if(radarLayoutEdit){
-    H.push(`<div class="card rd"><div class="sub">编辑布局：按 ☰ 拖动排序，或长按模块标题。点「隐藏」可去掉不常用的块，点「重置」恢复默认顺序（持有仓 → 大新闻 → 买点）。布局只保存在本机浏览器。</div></div>`);
+    H.push(`<div class="card rd"><div class="sub">编辑布局：按 ☰ 拖动排序，或长按模块标题。点「隐藏」可去掉不常用的块，点「重置」恢复默认顺序（持有仓 → 大新闻 → 买点）。布局只保存在本机浏览器。${isWideDesk()?'电脑宽屏下编辑时临时改为单列，点「完成」后恢复左右两栏（左：持有仓/买点/止盈止损；右：大新闻/定投/涨跌榜）。':''}</div></div>`);
   }
 
   try{ H.push(renderPlanBriefBlocks()); }catch(e){ console.warn(e); H.push('<div class="warnbox">交易计划区块渲染出错：'+esc(e.message||e)+'</div>'); }
@@ -2176,6 +2227,32 @@ function renderRadar(){
 }
 
 
+
+const HOLD_SHOT_MARK = 'holdings-json';
+const HOLDINGS_INSTRUCTION = [
+  '【持仓结构化输出】当用户要求识别、录入、更新、同步或导入持仓（例如上传盈透、富途、嘉信、盈立等券商截图并说“更新持仓”或“截图识别持仓”）时，必须严格按下面两步回复：',
+  '1. 先用中文给一个简短的持仓表（代码、名称、市场、数量、成本价、分仓）。',
+  '2. 回复的最后必须单独附加一个 ```holdings-json 围栏代码块。页面只靠这个代码块生成「一键导入/覆盖到本地持仓」按钮；没有它，用户就得手工录入。格式必须严格如下（不要加注释或尾随逗号，不要把它包在其他代码块里，不要把它放在表格里）：',
+  '',
+  '```holdings-json',
+  '[{"symbol":"TQQQ","market":"US","name":"ProShares UltraPro QQQ","qty":15,"cost":57.68,"bucket":"激进","account":"盈立"}]',
+  '```',
+  '',
+  '字段说明：',
+  '- symbol：交易代码（美股如 TQQQ、AAPL；A股如 600519 或 sh600519；港股如 00700；加密如 BTC）',
+  '- market：US / HK / CN / FUND / CRYPTO 之一（也可写 美股/港股/A股/基金/加密）',
+  '- qty：持有数量，必须是数字（不要带单位）',
+  '- cost：每股/每份成本价，使用该品种的计价货币。截图或用户未给出成本时，写 null，不要编造，也不要用现价代替',
+  '- bucket：可选，“激进”或“保守”',
+  '- account：可选，“ZA”或“盈立”。默认 ZA=QQQM/SCHD，其余为盈立',
+  '- name：可选',
+  '截图中的每一行持仓都要出现在数组里；现金、总资产、盈亏等不是持仓，不要写进数组。',
+  '如果图片看不清、不是持仓截图或没有识别到任何持仓，请只用文字说明原因，不要输出 holdings-json 代码块，也不要编造持仓。如果本次不是在识别或更新持仓，同样不要输出 holdings-json 代码块。'
+].join('\n');
+const HOLD_SHOT_PROMPT = '请识别这张券商/持仓截图（盈透、富途、嘉信、盈立等）里的全部持仓，准备导入到我的持仓列表。先列出每只的代码、名称、市场、数量和成本价；截图里没有成本价就写 null，不要编造，也不要用现价代替。回复的最后必须附加 holdings-json 代码块（按系统要求的格式，不要放进其他代码块）。如果图片看不清，请直接说明，不要编造。';
+const ETF_AGG = /^(TQQQ|SQQQ|UPRO|SPXU|SOXL|SOXS|TNA|TZA|TECL|TECS|QLD|QID|SSO|SDS|UDOW|SDOW|TMF|TMV|LABU|LABD|FAS|FAZ|NUGT|DUST|JNUG|JDST|BOIL|KOLD|UVXY|SVXY|VXX|VIXY|SPXL|SPXS|TARK|CURE|DFEN|DUSL|NAIL|RETL|CWEB|YINN|YANG|FNGU|FNGD|BULZ|BERZ|AGQ|ZSL|UCO|SCO|GUSH|DRIP|TSLL|TSLQ|NVDL|NVDX|CONL|MSFU|GGLL|AAPU|AMDL|AMZU|BITX|ETHU|MSTU|MSTX|KORU|KORD)$/i;
+const ETF_CONS = /^(SPY|SPYM|VOO|IVV|VTI|ITOT|QQQ|QQQM|DIA|IWM|VEA|VWO|VXUS|IEFA|EFA|AGG|BND|BNDX|TLT|IEF|SHY|LQD|VCIT|VCSH|VGIT|BIV|GOVT|SGOV|BIL|MUB|SCHD|VIG|VYM|DVY|DGRO|SPYD|VT|VTV|QUAL|CSPX|VUAA|SPLG|IEI|SHV|VGSH|VTIP|TIP|GLD|IAU|SLV)$/i;
+const CN_CONS = /^(sh510050|sh510300|sh510310|sh510330|sh510500|sh512100|sh563300|sz159915|sz159919|sz159922|sz159941|sh513100|sh513110|sh513500|sz159649)$/i;
 
 function defaultBucket(type, code, name){
   const c0 = String(code||'');
@@ -2381,7 +2458,7 @@ function renderTrendCard(plan){
   </div>`;
 }
 function paintPlanChart(){
-  const c = $('#planChart'); if(!c) return;
+  const c = chartEl(); if(!c) return;
   if(curTab!=='hold' && curTab!=='radar') return;
   drawPlanChart(c, S.planHist||[], S.settings.baseCur);
   bindPlanChartEvents();
@@ -2576,14 +2653,62 @@ function parseHoldingsFromText(text){
   if(!fences.length) return {items:null, error:null};
   return parseHoldingsJson(fences[fences.length-1].raw);
 }
+function looseHoldingsRaw(text){
+  const src = String(text||'');
+  const keyS = /"(symbol|ticker|code|sym|代码)"\s*:/, keyQ = /"(qty|quantity|shares|数量)"\s*:/;
+  const i = src.search(/\[\s*\{/);
+  if(i>=0){
+    const j = src.lastIndexOf(']');
+    if(j>i){ const cand = src.slice(i, j+1); if(keyS.test(cand) && keyQ.test(cand)){ const r = parseHoldingsJson(cand); if(r.items) return cand; } }
+  }
+  const o = src.match(/\{\s*"holdings"\s*:\s*\[[\s\S]*\]\s*\}/);
+  if(o && keyS.test(o[0]) && keyQ.test(o[0])){ const r = parseHoldingsJson(o[0]); if(r.items) return o[0]; }
+  const lines = src.split('\n');
+  const isRow = l => /^\s*\|.*\|\s*$/.test(l);
+  let best = null;
+  for(let k=0;k<lines.length;k++){
+    if(!isRow(lines[k])) continue;
+    let e = k; while(e<lines.length && isRow(lines[e])) e++;
+    const blk = lines.slice(k,e).map(l => l.trim().replace(/^\||\|$/g,'').split('|').map(s => s.trim().replace(/\*\*/g,'').replace(/`/g,'')));
+    k = e;
+    const head = blk[0] || [];
+    const idx = re => head.findIndex(c => re.test(c));
+    const iS = idx(/代码|symbol|ticker|标的/i), iQ = idx(/数量|股数|持股|持仓量|qty|quantity|shares/i);
+    if(iS<0 || iQ<0) continue;
+    const iN = idx(/名称|name/i), iM = idx(/市场|market|交易所/i), iC = idx(/成本|cost|均价|avg/i), iB = idx(/分仓|bucket/i), iA = idx(/账户|account/i);
+    const items = blk.slice(1).filter(r => !r.every(c => /^:?-{2,}:?$/.test(c))).map(r => {
+      const o2 = { symbol: String(r[iS]||'').split(/[\s（(\/]/)[0], qty: r[iQ] };
+      if(iN>=0) o2.name = r[iN];
+      if(iM>=0) o2.market = r[iM];
+      if(iC>=0) o2.cost = r[iC];
+      if(iB>=0) o2.bucket = r[iB];
+      if(iA>=0) o2.account = r[iA];
+      return o2;
+    }).filter(x => x.symbol && !/^(合计|总计|总资产|现金|total|cash)/i.test(x.symbol));
+    if(items.length) best = items;
+  }
+  if(best){ const raw = JSON.stringify(best); const r = parseHoldingsJson(raw); if(r.items && r.items.some(it => it.ok)) return raw; }
+  return null;
+}
+function wantsHoldingsReply(m){
+  const msgs = S.ai.chat || [];
+  const i = msgs.indexOf(m);
+  const prev = i>0 ? msgs[i-1] : null;
+  if(!prev || prev.role!=='user') return false;
+  const t = String(prev.content||'');
+  return t.includes(HOLD_SHOT_MARK) || (hasImages(prev) && /持仓|仓位/.test(t)) || (/持仓/.test(t) && /识别|导入|录入|更新|同步/.test(t));
+}
 function attachHoldingsDraft(m){
   if(!m || m.role!=='assistant') return;
   if(m.holdDraft && (m.holdDraft.applied || m.holdDraft.dismissed)) return;
   const fences = findHoldingsFences(m.content);
-  if(!fences.length) return;
-  const parsed = parseHoldingsJson(fences[fences.length-1].raw);
-  if(parsed.items) m.holdDraft = {items:parsed.items, error:null, status:'pending'};
-  else m.holdDraft = {items:[], error:parsed.error||'无法解析持仓数据', status:'pending'};
+  let raw = fences.length ? fences[fences.length-1].raw : null, loose = false;
+  const streaming = !!(chatAbort && m===S.ai.chat[S.ai.chat.length-1]);
+  if(!raw && !streaming && wantsHoldingsReply(m)){ raw = looseHoldingsRaw(m.content); loose = !!raw; }
+  if(!raw) return;
+  const parsed = parseHoldingsJson(raw);
+  if(parsed.items) m.holdDraft = {items:parsed.items, error:null, status:'pending', loose};
+  else if(!loose) m.holdDraft = {items:[], error:parsed.error||'无法解析持仓数据', status:'pending'};
   if(!m.id) m.id = uid();
 }
 function readDraftEdits(card, items){
@@ -2640,7 +2765,7 @@ function applyHoldingsDraft(mid, mode, card){
   m.holdDraft.applied = true;
   items.forEach(it => { const s=planSymFromKey(it.key); if(isPlanSym(s)) ensurePlan().bought[s]=true; });
   save(); renderAll(); renderChat(); refreshQuotes(true); showTab('hold');
-  toast(mode==='overwrite'?'已覆盖全部持仓':'已合并更新持仓');
+  toast(mode==='overwrite'?'✅ 已导入：覆盖为识别到的持仓，已跳转到「持仓」页':'✅ 已合并更新持仓，已跳转到「持仓」页', 4200);
 }
 function dismissHoldingsDraft(mid){
   const m = (S.ai.chat||[]).find(x => x && x.id===mid);
@@ -2649,13 +2774,14 @@ function dismissHoldingsDraft(mid){
 function renderHoldingsPreview(m){
   const d = m && m.holdDraft; if(!d || d.dismissed) return '';
   if(d.applied){
-    return `<div class="hold-preview"><div class="okbox">已写入持仓（${d.status==='overwrite'?'覆盖全部':'合并更新'}）。可到「持仓」页查看或修改。</div></div>`;
+    return `<div class="hold-preview hold-import"><div class="okbox">✅ 已导入到本地持仓（${d.status==='overwrite'?'覆盖全部':'仅合并更新'}）。数据只保存在这台设备的浏览器里。</div><div class="row"><button class="pri sm" data-tab="hold">去「持仓」页查看</button></div></div>`;
   }
   if(d.error && !(d.items&&d.items.length)){
     return `<div class="hold-preview"><div class="warnbox">识别到持仓数据，但无法解析：${esc(d.error)}</div></div>`;
   }
   const items = d.items||[];
   const ok = items.filter(it=>it.ok);
+  const bad = items.length - ok.length;
   const miss = ok.filter(it=>it.costMissing).length;
   const rows = items.map((it,i) => {
     return `<tr${it.ok?'':' class="bad"'}>
@@ -2667,16 +2793,21 @@ function renderHoldingsPreview(m){
       <td><select data-hold-account="${i}" style="width:auto" ${it.ok?'':'disabled'}><option value="ZA"${it.account==='ZA'?' selected':''}>ZA</option><option value="盈立"${it.account!=='ZA'?' selected':''}>盈立</option></select></td>
     </tr>`;
   }).join('');
-  return `<div class="hold-preview" data-mid="${esc(m.id)}">
-    <h3>识别到 ${ok.length} 条持仓，确认后才会写入本机</h3>
-    ${miss?`<div class="warnbox">有 ${miss} 条未提供成本价，已标出。可在写入前补填；留空则记为 0（合并时保留已有成本）。</div>`:''}
+  const dis = ok.length ? '' : 'disabled';
+  return `<div class="hold-preview hold-import" data-mid="${esc(m.id)}">
+    <h3>📥 识别到 ${ok.length} 条持仓，点下面的按钮才会写入本机</h3>
+    ${d.loose?'<div class="warnbox">AI 没有按要求附上标准的 holdings-json 代码块，这里是按回复里的表格/数据尽量识别的，请逐条核对数量和成本价再导入。</div>':''}
+    ${bad?`<div class="sub">另有 ${bad} 条无法识别（已灰显），不会写入。</div>`:''}
+    ${miss?`<div class="warnbox">有 ${miss} 条未提供成本价，已标出。可在导入前补填；留空则记为 0（仅合并时保留已有成本）。</div>`:''}
     <div style="overflow:auto"><table class="tbl"><thead><tr><th>代码</th><th>市场</th><th>数量</th><th>成本价（含费）</th><th>分仓</th><th>账户</th></tr></thead><tbody>${rows}</tbody></table></div>
     <div class="row">
-      <button class="pri sm" data-act="holdApply" data-mode="overwrite" data-mid="${esc(m.id)}" ${ok.length?'':'disabled'}>覆盖全部持仓</button>
-      <button class="sm" data-act="holdApply" data-mode="merge" data-mid="${esc(m.id)}" ${ok.length?'':'disabled'}>合并更新（同代码覆盖，其余保留）</button>
+      <button class="pri hold-go" data-act="holdApply" data-mode="overwrite" data-mid="${esc(m.id)}" ${dis}>一键导入/覆盖到本地持仓</button>
+    </div>
+    <div class="row">
+      <button class="sm" data-act="holdApply" data-mode="merge" data-mid="${esc(m.id)}" ${dis}>仅合并更新</button>
       <button class="sm" data-act="holdApplyCancel" data-mid="${esc(m.id)}">取消</button>
     </div>
-    <div class="sub">写入后只保存在这台设备的浏览器里，不会上传到 GitHub。</div>
+    <div class="hold-help">「一键导入/覆盖」：用上表替换本机全部持仓；「仅合并更新」：只更新同代码的持仓，其余保留。写入后只保存在这台设备的浏览器里，不会上传到 GitHub。</div>
   </div>`;
 }
 
@@ -2696,6 +2827,7 @@ function computePortfolio(){
 function renderHold(){
   const el = $('#tab-hold'); const P = computePlan(); const b = P.base;
   el.innerHTML = `
+  <div class="hold-grid"><div class="hold-col hold-l">
   <div class="card"><h2>资产汇总
     <span class="grow"></span><select style="width:auto" id="baseCur"><option value="CNY">人民币</option><option value="USD">美元</option><option value="HKD">港币</option></select></h2>
     <div class="sum">
@@ -2708,6 +2840,7 @@ function renderHold(){
     <div class="sub" style="margin-top:8px">${esc(fxLine())} <a href="#" data-act="fxEdit">修改汇率</a></div>
   </div>
   ${renderPlanCard(P)}
+  </div><div class="hold-col hold-r">
   ${renderTrendCard(P)}
   <div class="card"><h2>持仓明细 <span class="grow"></span><button class="pri sm" data-act="holdAdd">＋ 添加持仓</button></h2>
   <div class="sub">成本价含手续费。默认账户：ZA = QQQM、SCHD；盈立 = 其余美股/杠杆 ETF/NVDA 及现金。</div>
@@ -2737,7 +2870,8 @@ function renderHold(){
   </div>
   ${renderSltpWatchCard()}
   ${renderDcaProgressCard('hold')}
-  ${renderFullPosNote()}`;
+  ${renderFullPosNote()}
+  </div></div>`;
   $('#baseCur').value = b;
   if(curTab==='hold') requestAnimationFrame(paintPlanChart);
 }
@@ -2827,6 +2961,213 @@ async function copyHoldingsForPush(){
   }
 }
 
+/* ============ 跨设备同步：加密配置快照（全程在浏览器内完成，不联网） ============ */
+/* QR 码生成：qrcode-generator © 2009 Kazuhiko Arase，MIT License（本地内联，不调用任何外部网址） */
+var QRLIB=function(){var t=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],f={},c=function(t,r){o=function(t){for(var r=new Array(t),e=0;e<t;e+=1){r[e]=new Array(t);for(var n=0;n<t;n+=1)r[e][n]=null}return r}(i=4*e+17),l(0,0),l(i-7,0),l(0,i-7),s(),h(),d(t,r),e>=7&&v(t),null==a&&(a=p(e,n,u)),w(a,r)},l=function(t,r){for(var e=-1;e<=7;e+=1)if(!(t+e<=-1||i<=t+e))for(var n=-1;n<=7;n+=1)r+n<=-1||i<=r+n||(o[t+e][r+n]=0<=e&&e<=6&&(0==n||6==n)||0<=n&&n<=6&&(0==e||6==e)||2<=e&&e<=4&&2<=n&&n<=4)},h=function(){for(var t=8;t<i-8;t+=1)null==o[t][6]&&(o[t][6]=t%2==0);for(var r=8;r<i-8;r+=1)null==o[6][r]&&(o[6][r]=r%2==0)},s=function(){for(var t=B.getPatternPosition(e),r=0;r<t.length;r+=1)for(var n=0;n<t.length;n+=1){var i=t[r],a=t[n];if(null==o[i][a])for(var u=-2;u<=2;u+=1)for(var f=-2;f<=2;f+=1)o[i+u][a+f]=-2==u||2==u||-2==f||2==f||0==u&&0==f}},v=function(t){for(var r=B.getBCHTypeNumber(e),n=0;n<18;n+=1){var a=!t&&1==(r>>n&1);o[Math.floor(n/3)][n%3+i-8-3]=a}for(n=0;n<18;n+=1){a=!t&&1==(r>>n&1);o[n%3+i-8-3][Math.floor(n/3)]=a}},d=function(t,r){for(var e=n<<3|r,a=B.getBCHTypeInfo(e),u=0;u<15;u+=1){var f=!t&&1==(a>>u&1);u<6?o[u][8]=f:u<8?o[u+1][8]=f:o[i-15+u][8]=f}for(u=0;u<15;u+=1){f=!t&&1==(a>>u&1);u<8?o[8][i-u-1]=f:u<9?o[8][15-u-1+1]=f:o[8][15-u-1]=f}o[i-8][8]=!t},w=function(t,r){for(var e=-1,n=i-1,a=7,u=0,f=B.getMaskFunction(r),c=i-1;c>0;c-=2)for(6==c&&(c-=1);;){for(var g=0;g<2;g+=1)if(null==o[n][c-g]){var l=!1;u<t.length&&(l=1==(t[u]>>>a&1)),f(n,c-g)&&(l=!l),o[n][c-g]=l,-1==(a-=1)&&(u+=1,a=7)}if((n+=e)<0||i<=n){n-=e,e=-e;break}}},p=function(t,r,e){for(var n=A.getRSBlocks(t,r),o=b(),i=0;i<e.length;i+=1){var a=e[i];o.put(a.getMode(),4),o.put(a.getLength(),B.getLengthInBits(a.getMode(),t)),a.write(o)}var u=0;for(i=0;i<n.length;i+=1)u+=n[i].dataCount;if(o.getLengthInBits()>8*u)throw"code length overflow. ("+o.getLengthInBits()+">"+8*u+")";for(o.getLengthInBits()+4<=8*u&&o.put(0,4);o.getLengthInBits()%8!=0;)o.putBit(!1);for(;!(o.getLengthInBits()>=8*u||(o.put(236,8),o.getLengthInBits()>=8*u));)o.put(17,8);return function(t,r){for(var e=0,n=0,o=0,i=new Array(r.length),a=new Array(r.length),u=0;u<r.length;u+=1){var f=r[u].dataCount,c=r[u].totalCount-f;n=Math.max(n,f),o=Math.max(o,c),i[u]=new Array(f);for(var g=0;g<i[u].length;g+=1)i[u][g]=255&t.getBuffer()[g+e];e+=f;var l=B.getErrorCorrectPolynomial(c),h=k(i[u],l.getLength()-1).mod(l);for(a[u]=new Array(l.getLength()-1),g=0;g<a[u].length;g+=1){var s=g+h.getLength()-a[u].length;a[u][g]=s>=0?h.getAt(s):0}}var v=0;for(g=0;g<r.length;g+=1)v+=r[g].totalCount;var d=new Array(v),w=0;for(g=0;g<n;g+=1)for(u=0;u<r.length;u+=1)g<i[u].length&&(d[w]=i[u][g],w+=1);for(g=0;g<o;g+=1)for(u=0;u<r.length;u+=1)g<a[u].length&&(d[w]=a[u][g],w+=1);return d}(o,n)};f.addData=function(t,r){var e=null;switch(r=r||"Byte"){case"Numeric":e=M(t);break;case"Alphanumeric":e=x(t);break;case"Byte":e=m(t);break;case"Kanji":e=L(t);break;default:throw"mode:"+r}u.push(e),a=null},f.isDark=function(t,r){if(t<0||i<=t||r<0||i<=r)throw t+","+r;return o[t][r]},f.getModuleCount=function(){return i},f.make=function(){if(e<1){for(var t=1;t<40;t++){for(var r=A.getRSBlocks(t,n),o=b(),i=0;i<u.length;i++){var a=u[i];o.put(a.getMode(),4),o.put(a.getLength(),B.getLengthInBits(a.getMode(),t)),a.write(o)}var g=0;for(i=0;i<r.length;i++)g+=r[i].dataCount;if(o.getLengthInBits()<=8*g)break}e=t}c(!1,function(){for(var t=0,r=0,e=0;e<8;e+=1){c(!0,e);var n=B.getLostPoint(f);(0==e||t>n)&&(t=n,r=e)}return r}())},f.createTableTag=function(t,r){t=t||2;var e="";e+='<table style="',e+=" border-width: 0px; border-style: none;",e+=" border-collapse: collapse;",e+=" padding: 0px; margin: "+(r=void 0===r?4*t:r)+"px;",e+='">',e+="<tbody>";for(var n=0;n<f.getModuleCount();n+=1){e+="<tr>";for(var o=0;o<f.getModuleCount();o+=1)e+='<td style="',e+=" border-width: 0px; border-style: none;",e+=" border-collapse: collapse;",e+=" padding: 0px; margin: 0px;",e+=" width: "+t+"px;",e+=" height: "+t+"px;",e+=" background-color: ",e+=f.isDark(n,o)?"#000000":"#ffffff",e+=";",e+='"/>';e+="</tr>"}return e+="</tbody>",e+="</table>"},f.createSvgTag=function(t,r,e,n){var o={};"object"==typeof arguments[0]&&(t=(o=arguments[0]).cellSize,r=o.margin,e=o.alt,n=o.title),t=t||2,r=void 0===r?4*t:r,(e="string"==typeof e?{text:e}:e||{}).text=e.text||null,e.id=e.text?e.id||"qrcode-description":null,(n="string"==typeof n?{text:n}:n||{}).text=n.text||null,n.id=n.text?n.id||"qrcode-title":null;var i,a,u,c,g=f.getModuleCount()*t+2*r,l="";for(c="l"+t+",0 0,"+t+" -"+t+",0 0,-"+t+"z ",l+='<svg version="1.1" xmlns="http://www.w3.org/2000/svg"',l+=o.scalable?"":' width="'+g+'px" height="'+g+'px"',l+=' viewBox="0 0 '+g+" "+g+'" ',l+=' preserveAspectRatio="xMinYMin meet"',l+=n.text||e.text?' role="img" aria-labelledby="'+y([n.id,e.id].join(" ").trim())+'"':"",l+=">",l+=n.text?'<title id="'+y(n.id)+'">'+y(n.text)+"</title>":"",l+=e.text?'<description id="'+y(e.id)+'">'+y(e.text)+"</description>":"",l+='<rect width="100%" height="100%" fill="white" cx="0" cy="0"/>',l+='<path d="',a=0;a<f.getModuleCount();a+=1)for(u=a*t+r,i=0;i<f.getModuleCount();i+=1)f.isDark(a,i)&&(l+="M"+(i*t+r)+","+u+c);return l+='" stroke="transparent" fill="black"/>',l+="</svg>"},f.createDataURL=function(t,r){t=t||2,r=void 0===r?4*t:r;var e=f.getModuleCount()*t+2*r,n=r,o=e-r;return I(e,e,function(r,e){if(n<=r&&r<o&&n<=e&&e<o){var i=Math.floor((r-n)/t),a=Math.floor((e-n)/t);return f.isDark(a,i)?0:1}return 1})},f.createImgTag=function(t,r,e){t=t||2,r=void 0===r?4*t:r;var n=f.getModuleCount()*t+2*r,o="";return o+="<img",o+=' src="',o+=f.createDataURL(t,r),o+='"',o+=' width="',o+=n,o+='"',o+=' height="',o+=n,o+='"',e&&(o+=' alt="',o+=y(e),o+='"'),o+="/>"};var y=function(t){for(var r="",e=0;e<t.length;e+=1){var n=t.charAt(e);switch(n){case"<":r+="&lt;";break;case">":r+="&gt;";break;case"&":r+="&amp;";break;case'"':r+="&quot;";break;default:r+=n}}return r};return f.createASCII=function(t,r){if((t=t||1)<2)return function(t){t=void 0===t?2:t;var r,e,n,o,i,a=1*f.getModuleCount()+2*t,u=t,c=a-t,g={"██":"█","█ ":"▀"," █":"▄","  ":" "},l={"██":"▀","█ ":"▀"," █":" ","  ":" "},h="";for(r=0;r<a;r+=2){for(n=Math.floor((r-u)/1),o=Math.floor((r+1-u)/1),e=0;e<a;e+=1)i="█",u<=e&&e<c&&u<=r&&r<c&&f.isDark(n,Math.floor((e-u)/1))&&(i=" "),u<=e&&e<c&&u<=r+1&&r+1<c&&f.isDark(o,Math.floor((e-u)/1))?i+=" ":i+="█",h+=t<1&&r+1>=c?l[i]:g[i];h+="\n"}return a%2&&t>0?h.substring(0,h.length-a-1)+Array(a+1).join("▀"):h.substring(0,h.length-1)}(r);t-=1,r=void 0===r?2*t:r;var e,n,o,i,a=f.getModuleCount()*t+2*r,u=r,c=a-r,g=Array(t+1).join("██"),l=Array(t+1).join("  "),h="",s="";for(e=0;e<a;e+=1){for(o=Math.floor((e-u)/t),s="",n=0;n<a;n+=1)i=1,u<=n&&n<c&&u<=e&&e<c&&f.isDark(o,Math.floor((n-u)/t))&&(i=0),s+=i?g:l;for(o=0;o<t;o+=1)h+=s+"\n"}return h.substring(0,h.length-1)},f.renderTo2dContext=function(t,r){r=r||2;for(var e=f.getModuleCount(),n=0;n<e;n++)for(var o=0;o<e;o++)t.fillStyle=f.isDark(n,o)?"black":"white",t.fillRect(o*r,n*r,r,r)},f};t.stringToBytes=(t.stringToBytesFuncs={default:function(t){for(var r=[],e=0;e<t.length;e+=1){var n=t.charCodeAt(e);r.push(255&n)}return r}}).default,t.createStringToBytes=function(t,r){var e=function(){for(var e=S(t),n=function(){var t=e.read();if(-1==t)throw"eof";return t},o=0,i={};;){var a=e.read();if(-1==a)break;var u=n(),f=n()<<8|n();i[String.fromCharCode(a<<8|u)]=f,o+=1}if(o!=r)throw o+" != "+r;return i}(),n="?".charCodeAt(0);return function(t){for(var r=[],o=0;o<t.length;o+=1){var i=t.charCodeAt(o);if(i<128)r.push(i);else{var a=e[t.charAt(o)];"number"==typeof a?(255&a)==a?r.push(a):(r.push(a>>>8),r.push(255&a)):r.push(n)}}return r}};var r,e,n,o,i,a=1,u=2,f=4,c=8,g={L:1,M:0,Q:3,H:2},l=0,h=1,s=2,v=3,d=4,w=5,p=6,y=7,B=(r=[[],[6,18],[6,22],[6,26],[6,30],[6,34],[6,22,38],[6,24,42],[6,26,46],[6,28,50],[6,30,54],[6,32,58],[6,34,62],[6,26,46,66],[6,26,48,70],[6,26,50,74],[6,30,54,78],[6,30,56,82],[6,30,58,86],[6,34,62,90],[6,28,50,72,94],[6,26,50,74,98],[6,30,54,78,102],[6,28,54,80,106],[6,32,58,84,110],[6,30,58,86,114],[6,34,62,90,118],[6,26,50,74,98,122],[6,30,54,78,102,126],[6,26,52,78,104,130],[6,30,56,82,108,134],[6,34,60,86,112,138],[6,30,58,86,114,142],[6,34,62,90,118,146],[6,30,54,78,102,126,150],[6,24,50,76,102,128,154],[6,28,54,80,106,132,158],[6,32,58,84,110,136,162],[6,26,54,82,110,138,166],[6,30,58,86,114,142,170]],e=1335,n=7973,i=function(t){for(var r=0;0!=t;)r+=1,t>>>=1;return r},(o={}).getBCHTypeInfo=function(t){for(var r=t<<10;i(r)-i(e)>=0;)r^=e<<i(r)-i(e);return 21522^(t<<10|r)},o.getBCHTypeNumber=function(t){for(var r=t<<12;i(r)-i(n)>=0;)r^=n<<i(r)-i(n);return t<<12|r},o.getPatternPosition=function(t){return r[t-1]},o.getMaskFunction=function(t){switch(t){case l:return function(t,r){return(t+r)%2==0};case h:return function(t,r){return t%2==0};case s:return function(t,r){return r%3==0};case v:return function(t,r){return(t+r)%3==0};case d:return function(t,r){return(Math.floor(t/2)+Math.floor(r/3))%2==0};case w:return function(t,r){return t*r%2+t*r%3==0};case p:return function(t,r){return(t*r%2+t*r%3)%2==0};case y:return function(t,r){return(t*r%3+(t+r)%2)%2==0};default:throw"bad maskPattern:"+t}},o.getErrorCorrectPolynomial=function(t){for(var r=k([1],0),e=0;e<t;e+=1)r=r.multiply(k([1,C.gexp(e)],0));return r},o.getLengthInBits=function(t,r){if(1<=r&&r<10)switch(t){case a:return 10;case u:return 9;case f:case c:return 8;default:throw"mode:"+t}else if(r<27)switch(t){case a:return 12;case u:return 11;case f:return 16;case c:return 10;default:throw"mode:"+t}else{if(!(r<41))throw"type:"+r;switch(t){case a:return 14;case u:return 13;case f:return 16;case c:return 12;default:throw"mode:"+t}}},o.getLostPoint=function(t){for(var r=t.getModuleCount(),e=0,n=0;n<r;n+=1)for(var o=0;o<r;o+=1){for(var i=0,a=t.isDark(n,o),u=-1;u<=1;u+=1)if(!(n+u<0||r<=n+u))for(var f=-1;f<=1;f+=1)o+f<0||r<=o+f||0==u&&0==f||a==t.isDark(n+u,o+f)&&(i+=1);i>5&&(e+=3+i-5)}for(n=0;n<r-1;n+=1)for(o=0;o<r-1;o+=1){var c=0;t.isDark(n,o)&&(c+=1),t.isDark(n+1,o)&&(c+=1),t.isDark(n,o+1)&&(c+=1),t.isDark(n+1,o+1)&&(c+=1),0!=c&&4!=c||(e+=3)}for(n=0;n<r;n+=1)for(o=0;o<r-6;o+=1)t.isDark(n,o)&&!t.isDark(n,o+1)&&t.isDark(n,o+2)&&t.isDark(n,o+3)&&t.isDark(n,o+4)&&!t.isDark(n,o+5)&&t.isDark(n,o+6)&&(e+=40);for(o=0;o<r;o+=1)for(n=0;n<r-6;n+=1)t.isDark(n,o)&&!t.isDark(n+1,o)&&t.isDark(n+2,o)&&t.isDark(n+3,o)&&t.isDark(n+4,o)&&!t.isDark(n+5,o)&&t.isDark(n+6,o)&&(e+=40);var g=0;for(o=0;o<r;o+=1)for(n=0;n<r;n+=1)t.isDark(n,o)&&(g+=1);return e+=Math.abs(100*g/r/r-50)/5*10},o),C=function(){for(var t=new Array(256),r=new Array(256),e=0;e<8;e+=1)t[e]=1<<e;for(e=8;e<256;e+=1)t[e]=t[e-4]^t[e-5]^t[e-6]^t[e-8];for(e=0;e<255;e+=1)r[t[e]]=e;var n={glog:function(t){if(t<1)throw"glog("+t+")";return r[t]},gexp:function(r){for(;r<0;)r+=255;for(;r>=256;)r-=255;return t[r]}};return n}();function k(t,r){if(void 0===t.length)throw t.length+"/"+r;var e=function(){for(var e=0;e<t.length&&0==t[e];)e+=1;for(var n=new Array(t.length-e+r),o=0;o<t.length-e;o+=1)n[o]=t[o+e];return n}(),n={getAt:function(t){return e[t]},getLength:function(){return e.length},multiply:function(t){for(var r=new Array(n.getLength()+t.getLength()-1),e=0;e<n.getLength();e+=1)for(var o=0;o<t.getLength();o+=1)r[e+o]^=C.gexp(C.glog(n.getAt(e))+C.glog(t.getAt(o)));return k(r,0)},mod:function(t){if(n.getLength()-t.getLength()<0)return n;for(var r=C.glog(n.getAt(0))-C.glog(t.getAt(0)),e=new Array(n.getLength()),o=0;o<n.getLength();o+=1)e[o]=n.getAt(o);for(o=0;o<t.getLength();o+=1)e[o]^=C.gexp(C.glog(t.getAt(o))+r);return k(e,0).mod(t)}};return n}var A=function(){var t=[[1,26,19],[1,26,16],[1,26,13],[1,26,9],[1,44,34],[1,44,28],[1,44,22],[1,44,16],[1,70,55],[1,70,44],[2,35,17],[2,35,13],[1,100,80],[2,50,32],[2,50,24],[4,25,9],[1,134,108],[2,67,43],[2,33,15,2,34,16],[2,33,11,2,34,12],[2,86,68],[4,43,27],[4,43,19],[4,43,15],[2,98,78],[4,49,31],[2,32,14,4,33,15],[4,39,13,1,40,14],[2,121,97],[2,60,38,2,61,39],[4,40,18,2,41,19],[4,40,14,2,41,15],[2,146,116],[3,58,36,2,59,37],[4,36,16,4,37,17],[4,36,12,4,37,13],[2,86,68,2,87,69],[4,69,43,1,70,44],[6,43,19,2,44,20],[6,43,15,2,44,16],[4,101,81],[1,80,50,4,81,51],[4,50,22,4,51,23],[3,36,12,8,37,13],[2,116,92,2,117,93],[6,58,36,2,59,37],[4,46,20,6,47,21],[7,42,14,4,43,15],[4,133,107],[8,59,37,1,60,38],[8,44,20,4,45,21],[12,33,11,4,34,12],[3,145,115,1,146,116],[4,64,40,5,65,41],[11,36,16,5,37,17],[11,36,12,5,37,13],[5,109,87,1,110,88],[5,65,41,5,66,42],[5,54,24,7,55,25],[11,36,12,7,37,13],[5,122,98,1,123,99],[7,73,45,3,74,46],[15,43,19,2,44,20],[3,45,15,13,46,16],[1,135,107,5,136,108],[10,74,46,1,75,47],[1,50,22,15,51,23],[2,42,14,17,43,15],[5,150,120,1,151,121],[9,69,43,4,70,44],[17,50,22,1,51,23],[2,42,14,19,43,15],[3,141,113,4,142,114],[3,70,44,11,71,45],[17,47,21,4,48,22],[9,39,13,16,40,14],[3,135,107,5,136,108],[3,67,41,13,68,42],[15,54,24,5,55,25],[15,43,15,10,44,16],[4,144,116,4,145,117],[17,68,42],[17,50,22,6,51,23],[19,46,16,6,47,17],[2,139,111,7,140,112],[17,74,46],[7,54,24,16,55,25],[34,37,13],[4,151,121,5,152,122],[4,75,47,14,76,48],[11,54,24,14,55,25],[16,45,15,14,46,16],[6,147,117,4,148,118],[6,73,45,14,74,46],[11,54,24,16,55,25],[30,46,16,2,47,17],[8,132,106,4,133,107],[8,75,47,13,76,48],[7,54,24,22,55,25],[22,45,15,13,46,16],[10,142,114,2,143,115],[19,74,46,4,75,47],[28,50,22,6,51,23],[33,46,16,4,47,17],[8,152,122,4,153,123],[22,73,45,3,74,46],[8,53,23,26,54,24],[12,45,15,28,46,16],[3,147,117,10,148,118],[3,73,45,23,74,46],[4,54,24,31,55,25],[11,45,15,31,46,16],[7,146,116,7,147,117],[21,73,45,7,74,46],[1,53,23,37,54,24],[19,45,15,26,46,16],[5,145,115,10,146,116],[19,75,47,10,76,48],[15,54,24,25,55,25],[23,45,15,25,46,16],[13,145,115,3,146,116],[2,74,46,29,75,47],[42,54,24,1,55,25],[23,45,15,28,46,16],[17,145,115],[10,74,46,23,75,47],[10,54,24,35,55,25],[19,45,15,35,46,16],[17,145,115,1,146,116],[14,74,46,21,75,47],[29,54,24,19,55,25],[11,45,15,46,46,16],[13,145,115,6,146,116],[14,74,46,23,75,47],[44,54,24,7,55,25],[59,46,16,1,47,17],[12,151,121,7,152,122],[12,75,47,26,76,48],[39,54,24,14,55,25],[22,45,15,41,46,16],[6,151,121,14,152,122],[6,75,47,34,76,48],[46,54,24,10,55,25],[2,45,15,64,46,16],[17,152,122,4,153,123],[29,74,46,14,75,47],[49,54,24,10,55,25],[24,45,15,46,46,16],[4,152,122,18,153,123],[13,74,46,32,75,47],[48,54,24,14,55,25],[42,45,15,32,46,16],[20,147,117,4,148,118],[40,75,47,7,76,48],[43,54,24,22,55,25],[10,45,15,67,46,16],[19,148,118,6,149,119],[18,75,47,31,76,48],[34,54,24,34,55,25],[20,45,15,61,46,16]],r=function(t,r){var e={};return e.totalCount=t,e.dataCount=r,e},e={};return e.getRSBlocks=function(e,n){var o=function(r,e){switch(e){case g.L:return t[4*(r-1)+0];case g.M:return t[4*(r-1)+1];case g.Q:return t[4*(r-1)+2];case g.H:return t[4*(r-1)+3];default:return}}(e,n);if(void 0===o)throw"bad rs block @ typeNumber:"+e+"/errorCorrectionLevel:"+n;for(var i=o.length/3,a=[],u=0;u<i;u+=1)for(var f=o[3*u+0],c=o[3*u+1],l=o[3*u+2],h=0;h<f;h+=1)a.push(r(c,l));return a},e}(),b=function(){var t=[],r=0,e={getBuffer:function(){return t},getAt:function(r){var e=Math.floor(r/8);return 1==(t[e]>>>7-r%8&1)},put:function(t,r){for(var n=0;n<r;n+=1)e.putBit(1==(t>>>r-n-1&1))},getLengthInBits:function(){return r},putBit:function(e){var n=Math.floor(r/8);t.length<=n&&t.push(0),e&&(t[n]|=128>>>r%8),r+=1}};return e},M=function(t){var r=a,e=t,n={getMode:function(){return r},getLength:function(t){return e.length},write:function(t){for(var r=e,n=0;n+2<r.length;)t.put(o(r.substring(n,n+3)),10),n+=3;n<r.length&&(r.length-n==1?t.put(o(r.substring(n,n+1)),4):r.length-n==2&&t.put(o(r.substring(n,n+2)),7))}},o=function(t){for(var r=0,e=0;e<t.length;e+=1)r=10*r+i(t.charAt(e));return r},i=function(t){if("0"<=t&&t<="9")return t.charCodeAt(0)-"0".charCodeAt(0);throw"illegal char :"+t};return n},x=function(t){var r=u,e=t,n={getMode:function(){return r},getLength:function(t){return e.length},write:function(t){for(var r=e,n=0;n+1<r.length;)t.put(45*o(r.charAt(n))+o(r.charAt(n+1)),11),n+=2;n<r.length&&t.put(o(r.charAt(n)),6)}},o=function(t){if("0"<=t&&t<="9")return t.charCodeAt(0)-"0".charCodeAt(0);if("A"<=t&&t<="Z")return t.charCodeAt(0)-"A".charCodeAt(0)+10;switch(t){case" ":return 36;case"$":return 37;case"%":return 38;case"*":return 39;case"+":return 40;case"-":return 41;case".":return 42;case"/":return 43;case":":return 44;default:throw"illegal char :"+t}};return n},m=function(r){var e=f,n=t.stringToBytes(r),o={getMode:function(){return e},getLength:function(t){return n.length},write:function(t){for(var r=0;r<n.length;r+=1)t.put(n[r],8)}};return o},L=function(r){var e=c,n=t.stringToBytesFuncs.SJIS;if(!n)throw"sjis not supported.";!function(){var t=n("友");if(2!=t.length||38726!=(t[0]<<8|t[1]))throw"sjis not supported."}();var o=n(r),i={getMode:function(){return e},getLength:function(t){return~~(o.length/2)},write:function(t){for(var r=o,e=0;e+1<r.length;){var n=(255&r[e])<<8|255&r[e+1];if(33088<=n&&n<=40956)n-=33088;else{if(!(57408<=n&&n<=60351))throw"illegal char at "+(e+1)+"/"+n;n-=49472}n=192*(n>>>8&255)+(255&n),t.put(n,13),e+=2}if(e<r.length)throw"illegal char at "+(e+1)}};return i},D=function(){var t=[],r={writeByte:function(r){t.push(255&r)},writeShort:function(t){r.writeByte(t),r.writeByte(t>>>8)},writeBytes:function(t,e,n){e=e||0,n=n||t.length;for(var o=0;o<n;o+=1)r.writeByte(t[o+e])},writeString:function(t){for(var e=0;e<t.length;e+=1)r.writeByte(t.charCodeAt(e))},toByteArray:function(){return t},toString:function(){var r="";r+="[";for(var e=0;e<t.length;e+=1)e>0&&(r+=","),r+=t[e];return r+="]"}};return r},S=function(t){var r=t,e=0,n=0,o=0,i={read:function(){for(;o<8;){if(e>=r.length){if(0==o)return-1;throw"unexpected end of file./"+o}var t=r.charAt(e);if(e+=1,"="==t)return o=0,-1;t.match(/^\s$/)||(n=n<<6|a(t.charCodeAt(0)),o+=6)}var i=n>>>o-8&255;return o-=8,i}},a=function(t){if(65<=t&&t<=90)return t-65;if(97<=t&&t<=122)return t-97+26;if(48<=t&&t<=57)return t-48+52;if(43==t)return 62;if(47==t)return 63;throw"c:"+t};return i},I=function(t,r,e){for(var n=function(t,r){var e=t,n=r,o=new Array(t*r),i={setPixel:function(t,r,n){o[r*e+t]=n},write:function(t){t.writeString("GIF87a"),t.writeShort(e),t.writeShort(n),t.writeByte(128),t.writeByte(0),t.writeByte(0),t.writeByte(0),t.writeByte(0),t.writeByte(0),t.writeByte(255),t.writeByte(255),t.writeByte(255),t.writeString(","),t.writeShort(0),t.writeShort(0),t.writeShort(e),t.writeShort(n),t.writeByte(0);var r=a(2);t.writeByte(2);for(var o=0;r.length-o>255;)t.writeByte(255),t.writeBytes(r,o,255),o+=255;t.writeByte(r.length-o),t.writeBytes(r,o,r.length-o),t.writeByte(0),t.writeString(";")}},a=function(t){for(var r=1<<t,e=1+(1<<t),n=t+1,i=u(),a=0;a<r;a+=1)i.add(String.fromCharCode(a));i.add(String.fromCharCode(r)),i.add(String.fromCharCode(e));var f,c,g,l=D(),h=(f=l,c=0,g=0,{write:function(t,r){if(t>>>r!=0)throw"length over";for(;c+r>=8;)f.writeByte(255&(t<<c|g)),r-=8-c,t>>>=8-c,g=0,c=0;g|=t<<c,c+=r},flush:function(){c>0&&f.writeByte(g)}});h.write(r,n);var s=0,v=String.fromCharCode(o[s]);for(s+=1;s<o.length;){var d=String.fromCharCode(o[s]);s+=1,i.contains(v+d)?v+=d:(h.write(i.indexOf(v),n),i.size()<4095&&(i.size()==1<<n&&(n+=1),i.add(v+d)),v=d)}return h.write(i.indexOf(v),n),h.write(e,n),h.flush(),l.toByteArray()},u=function(){var t={},r=0,e={add:function(n){if(e.contains(n))throw"dup key:"+n;t[n]=r,r+=1},size:function(){return r},indexOf:function(r){return t[r]},contains:function(r){return void 0!==t[r]}};return e};return i}(t,r),o=0;o<r;o+=1)for(var i=0;i<t;i+=1)n.setPixel(i,o,e(i,o));var a=D();n.write(a);for(var u=function(){var t=0,r=0,e=0,n="",o={},i=function(t){n+=String.fromCharCode(a(63&t))},a=function(t){if(t<0);else{if(t<26)return 65+t;if(t<52)return t-26+97;if(t<62)return t-52+48;if(62==t)return 43;if(63==t)return 47}throw"n:"+t};return o.writeByte=function(n){for(t=t<<8|255&n,r+=8,e+=1;r>=6;)i(t>>>r-6),r-=6},o.flush=function(){if(r>0&&(i(t<<6-r),t=0,r=0),e%3!=0)for(var o=3-e%3,a=0;a<o;a+=1)n+="="},o.toString=function(){return n},o}(),f=a.toByteArray(),c=0;c<f.length;c+=1)u.writeByte(f[c]);return u.flush(),"data:image/gif;base64,"+u};return t}();return t.stringToBytesFuncs["UTF-8"]=function(t){return function(t){for(var r=[],e=0;e<t.length;e++){var n=t.charCodeAt(e);n<128?r.push(n):n<2048?r.push(192|n>>6,128|63&n):n<55296||n>=57344?r.push(224|n>>12,128|n>>6&63,128|63&n):(e++,n=65536+((1023&n)<<10|1023&t.charCodeAt(e)),r.push(240|n>>18,128|n>>12&63,128|n>>6&63,128|63&n))}return r}(t)},t}();
+const SNAP_PREFIX = 'INVSNAP1.';
+const SNAP_ITER = 200000;
+const SNAP_QR_MAX = 1200;
+let snapLastOut = '';
+function snapB64(bytes){
+  let s = ''; const CH = 0x8000;
+  for(let i=0;i<bytes.length;i+=CH) s += String.fromCharCode.apply(null, bytes.subarray(i, i+CH));
+  return btoa(s).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+}
+function snapUnb64(str){
+  let s = String(str).replace(/-/g,'+').replace(/_/g,'/');
+  while(s.length % 4) s += '=';
+  const bin = atob(s); const out = new Uint8Array(bin.length);
+  for(let i=0;i<bin.length;i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+function snapCryptoOk(){ return !!(window.crypto && crypto.subtle && crypto.getRandomValues); }
+async function snapKey(pw, salt, usage){
+  const base = await crypto.subtle.importKey('raw', new TextEncoder().encode(pw), 'PBKDF2', false, ['deriveKey']);
+  return crypto.subtle.deriveKey({name:'PBKDF2', salt, iterations:SNAP_ITER, hash:'SHA-256'}, base, {name:'AES-GCM', length:256}, false, usage);
+}
+async function snapGzip(bytes){
+  const st = new Blob([bytes]).stream().pipeThrough(new CompressionStream('gzip'));
+  return new Uint8Array(await new Response(st).arrayBuffer());
+}
+async function snapGunzip(bytes){
+  const st = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'));
+  return new Uint8Array(await new Response(st).arrayBuffer());
+}
+function snapCollect(opts){
+  opts = opts || {};
+  const cp = x => JSON.parse(JSON.stringify(x===undefined?null:x));
+  const prov = {};
+  for(const k in PROVIDERS){ const c = (S.ai.providers||{})[k]; if(c && (c.model!==PROVIDERS[k].model || c.base!==PROVIDERS[k].base || c.nothink)) prov[k] = {model:c.model, base:c.base, nothink:!!c.nothink}; }
+  return {
+    app:'invest-snapshot', v:1, createdAt:new Date().toISOString(),
+    data:{
+      hold:cp(S.hold||[]), watch:cp(S.watch||[]), events:cp(S.events||[]), manual:cp(S.manual||{}),
+      plan:cp(S.plan||{}), planStrategy:cp(S.planStrategy),
+      planHist: opts.noHist ? null : cp(S.planHist||[]),
+      settings:cp(S.settings||{}), fxManual:cp((S.fx&&S.fx.manual)||{}),
+      ai:{ provider:S.ai.provider, ctxAuto:!!S.ai.ctxAuto, system:(S.ai.system && S.ai.system!==DEFAULT_SYSTEM) ? S.ai.system : null, providers:prov },
+      layout:loadRadarLayout()
+    }
+  };
+}
+async function snapEncrypt(obj, pw){
+  const json = new TextEncoder().encode(JSON.stringify(obj));
+  let flag = 0, body = json;
+  if(typeof CompressionStream==='function'){
+    try{ const z = await snapGzip(json); if(z.length < json.length){ body = z; flag = 1; } }catch(_){}
+  }
+  const plain = new Uint8Array(body.length+1); plain[0] = flag; plain.set(body, 1);
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const key = await snapKey(pw, salt, ['encrypt']);
+  const ct = new Uint8Array(await crypto.subtle.encrypt({name:'AES-GCM', iv, additionalData:new TextEncoder().encode('INVSNAP1')}, key, plain));
+  const all = new Uint8Array(28 + ct.length);
+  all.set(salt, 0); all.set(iv, 16); all.set(ct, 28);
+  return SNAP_PREFIX + snapB64(all);
+}
+function snapExtract(text){
+  const m = String(text||'').replace(/\s+/g,'').match(/INVSNAP1\.[A-Za-z0-9_-]{40,}/);
+  return m ? m[0] : '';
+}
+async function snapDecrypt(str, pw){
+  if(!snapCryptoOk()) throw new Error('当前环境不支持解密（需要 https 网址，或直接打开本机文件）');
+  let all;
+  try{ all = snapUnb64(str.slice(SNAP_PREFIX.length)); }catch(_){ throw new Error('快照内容不完整，请重新复制整串'); }
+  if(all.length < 28+17) throw new Error('快照内容不完整，请重新复制整串');
+  let plain;
+  try{
+    const key = await snapKey(pw, all.slice(0,16), ['decrypt']);
+    plain = new Uint8Array(await crypto.subtle.decrypt({name:'AES-GCM', iv:all.slice(16,28), additionalData:new TextEncoder().encode('INVSNAP1')}, key, all.slice(28)));
+  }catch(_){ throw new Error('密码不对，或快照没有复制完整。本机数据没有改动。'); }
+  let body = plain.slice(1);
+  if(plain[0]===1){
+    if(typeof DecompressionStream!=='function') throw new Error('这个浏览器太旧，无法解压快照，请换新版 Chrome / Safari');
+    body = await snapGunzip(body);
+  }
+  let o;
+  try{ o = JSON.parse(new TextDecoder().decode(body)); }catch(_){ throw new Error('快照损坏，无法读取'); }
+  if(!o || o.app!=='invest-snapshot' || !o.data || typeof o.data!=='object') throw new Error('这不是本应用的配置快照');
+  return o;
+}
+function snapSummaryHtml(o){
+  const d = o.data||{}, st = d.settings||{};
+  const nh = Array.isArray(d.hold) ? d.hold.length : 0;
+  const when = o.createdAt ? new Date(o.createdAt).toLocaleString('zh-CN',{hour12:false,timeZone:'Asia/Shanghai'}) : '未知';
+  const lay = d.layout && Array.isArray(d.layout.order) ? `含（隐藏 ${(d.layout.hidden||[]).length} 个模块）` : '不含';
+  const row = (k,v) => `<div class="row"><span class="grow sub">${k}</span><b>${v}</b></div>`;
+  return `<div class="sub">快照生成时间：${esc(when)}（北京时间）</div>
+    ${row('持仓', nh+' 条')}
+    ${row('总资金', Number.isFinite(num(st.capitalUsd)) ? ('$'+fmt(num(st.capitalUsd),2)) : '—')}
+    ${row('目标比例（激进 / 保守 / 现金）', [st.targetAggressive,st.targetConservative,st.targetCash].map(x=>Number.isFinite(num(x))?num(x)+'%':'—').join(' / '))}
+    ${row('仓位走势记录', Array.isArray(d.planHist) ? (d.planHist.length+' 天') : '不含（保留本机原有）')}
+    ${row('本机雷达策略', d.planStrategy ? '含' : '无（恢复云端默认）')}
+    ${row('雷达模块排序/隐藏', lay)}
+    ${row('自选 / 事件', (Array.isArray(d.watch)?d.watch.length:0)+' / '+(Array.isArray(d.events)?d.events.length:0))}
+    <div class="warnbox" style="margin-top:10px">确认后会<b>覆盖</b>这台设备上的持仓、资金规划、自选、事件、雷达策略与布局、相关设置。API Key、访问密码和 AI 对话记录不受影响。</div>`;
+}
+function snapApply(o){
+  const d = o.data||{}, base = defaults();
+  if(Array.isArray(d.hold)) S.hold = d.hold.filter(x => x && x.key && num(x.qty)>0);
+  if(Array.isArray(d.watch)) S.watch = d.watch.filter(x => x && x.key);
+  if(Array.isArray(d.events)) S.events = d.events;
+  if(d.manual && typeof d.manual==='object') S.manual = d.manual;
+  if(d.plan && typeof d.plan==='object') S.plan = merge(base.plan, d.plan);
+  S.planStrategy = (d.planStrategy && typeof d.planStrategy==='object') ? d.planStrategy : null;
+  if(Array.isArray(d.planHist)) S.planHist = d.planHist;
+  if(d.settings && typeof d.settings==='object') S.settings = merge(base.settings, d.settings);
+  if(d.fxManual && typeof d.fxManual==='object'){ S.fx = S.fx || base.fx; S.fx.manual = d.fxManual; }
+  if(d.ai && typeof d.ai==='object'){
+    if(PROVIDERS[d.ai.provider]) S.ai.provider = d.ai.provider;
+    S.ai.ctxAuto = !!d.ai.ctxAuto;
+    if(typeof d.ai.system==='string' && d.ai.system.trim()) S.ai.system = d.ai.system;
+    if(d.ai.providers && typeof d.ai.providers==='object'){
+      for(const k in PROVIDERS){ const c = d.ai.providers[k]; if(c && typeof c==='object') S.ai.providers[k] = Object.assign({}, S.ai.providers[k], {model:c.model||PROVIDERS[k].model, base:c.base||PROVIDERS[k].base, nothink:!!c.nothink}); }
+    }
+  }
+  if(d.layout && Array.isArray(d.layout.order)) saveRadarLayout({order:d.layout.order, hidden:Array.isArray(d.layout.hidden)?d.layout.hidden:[]});
+  load_post(); save(); applyTheme(); setupTimer(); renderAll(); showTab(curTab); refreshQuotes(true);
+  toast('✅ 配置快照已导入并生效', 4200);
+}
+function snapConfirmDialog(o){
+  openDlg('确认导入配置快照', snapSummaryHtml(o), '确认覆盖并导入', () => {
+    snapApply(o);
+    const a = $('#snapIn'), b = $('#snapInPw'); if(a) a.value = ''; if(b) b.value = '';
+  });
+}
+function snapPasswordDialog(str){
+  openDlg('导入配置快照', `<div class="sub">检测到加密的配置快照。输入导出时设置的快照密码后，先预览内容，确认后才会覆盖。</div>
+    <label class="f">快照密码</label><input id="snapDlgPw" type="password" autocomplete="off">`, '解密并预览', async () => {
+    const pw = $('#snapDlgPw').value;
+    if(!pw) throw new Error('请输入快照密码');
+    const snap = await snapDecrypt(str, pw);
+    snapConfirmDialog(snap);
+    return false;
+  });
+  setTimeout(() => { const el = $('#snapDlgPw'); if(el) el.focus(); }, 60);
+}
+function snapRouteText(text){
+  const s = snapExtract(String(text||'').slice(0, 200000));
+  if(!s) return false;
+  snapPasswordDialog(s);
+  return true;
+}
+function snapSay(msg, bad){
+  const el = $('#snapMsg'); if(!el) { toast(msg, 4200); return; }
+  el.className = msg ? (bad ? 'warnbox' : 'okbox') : 'sub';
+  el.textContent = msg || '';
+}
+function paintSnapQR(str){
+  const box = $('#snapQr'); if(!box) return;
+  box.innerHTML = '';
+  if(!str) return;
+  if(str.length > SNAP_QR_MAX){
+    box.innerHTML = `<div class="sub">这份快照有 ${str.length} 个字符，太长了，二维码扫不稳，所以没有生成二维码。请直接复制上面的文字（可勾选「不含仓位走势记录」生成更短的快照）。</div>`;
+    return;
+  }
+  try{
+    const q = QRLIB(0, 'L'); q.addData(str, 'Byte'); q.make();
+    const n = q.getModuleCount(), cell = Math.max(2, Math.floor(320/(n+8))), size = (n+8)*cell;
+    const c = document.createElement('canvas'); c.width = size; c.height = size;
+    const g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0,0,size,size); g.fillStyle = '#000';
+    for(let r=0;r<n;r++) for(let k=0;k<n;k++) if(q.isDark(r,k)) g.fillRect((k+4)*cell, (r+4)*cell, cell, cell);
+    box.appendChild(c);
+    const t = document.createElement('div'); t.className = 'sub'; t.textContent = '手机相机/微信扫一扫可得到同一串文字（仅限短快照）。'; box.appendChild(t);
+  }catch(e){
+    box.innerHTML = '<div class="sub">二维码生成失败，请直接复制上面的文字。</div>';
+  }
+}
+function paintSnapOut(){
+  const box = $('#snapOutBox'); if(!box) return;
+  if(!snapLastOut){ box.innerHTML = ''; return; }
+  box.innerHTML = `<label class="f">加密后的快照（已生成 ${snapLastOut.length} 个字符）</label>
+    <textarea id="snapOut" class="snap-out" readonly rows="5">${esc(snapLastOut)}</textarea>
+    <button class="pri snap-copy" data-act="snapCopy">复制快照</button>
+    <div class="note">下一步：在电脑上点「复制快照」→ 粘贴发到「微信文件传输助手」→ 手机打开本页，进入「设置 → 跨设备同步」，把整串粘贴到「导入恢复」，输入同一个快照密码并确认。</div>
+    <div class="snap-qr" id="snapQr"></div>`;
+  paintSnapQR(snapLastOut);
+}
+function renderSnapCard(){
+  return `<div class="card" id="snapCard"><h2>🔄 跨设备同步（电脑 ↔ 手机）</h2>
+    <div class="note">电脑和手机的数据是各自独立的。这里把持仓、资金规划（含走势记录）、雷达策略和模块布局、自选、事件打成<b>一串加密文字</b>：在电脑导出，发到微信文件传输助手，手机上导入即可。全程只在你的浏览器里完成，不经过任何服务器；<b>不含 API Key、不含访问密码、不含对话图片</b>。</div>
+    <div><b>① 在这台设备导出</b></div>
+    <label class="f">快照密码（自己定，至少 6 位；导入时要输入同一个，忘了就解不开）</label>
+    <input id="snapPw1" type="password" autocomplete="new-password" placeholder="设置快照密码">
+    <label class="f">再输入一次</label>
+    <input id="snapPw2" type="password" autocomplete="new-password" placeholder="确认快照密码">
+    <label class="row sub" style="margin-top:8px;gap:8px"><input type="checkbox" id="snapNoHist"> 不含仓位走势记录（快照更短，更可能生成二维码）</label>
+    <div class="row" style="margin-top:10px"><button class="pri" data-act="snapExport">导出配置快照</button></div>
+    <div id="snapOutBox"></div>
+    <div class="snap-sec"><b>② 在另一台设备导入恢复</b></div>
+    <label class="f">粘贴快照（以 INVSNAP1. 开头）</label>
+    <textarea id="snapIn" rows="4" placeholder="把整串快照粘贴到这里" autocomplete="off" spellcheck="false"></textarea>
+    <label class="f">快照密码</label>
+    <input id="snapInPw" type="password" autocomplete="off" placeholder="导出时设置的快照密码">
+    <div class="row" style="margin-top:10px"><button class="pri" data-act="snapImport">导入恢复</button></div>
+    <div id="snapMsg" class="sub" role="status"></div>
+    <div class="sub" style="margin-top:8px">导入前会先显示摘要，确认后才覆盖本机数据；密码不对不会改动任何数据。</div>
+  </div>`;
+}
+
 function renderSet(){
   const st = S.settings;
   $('#tab-set').innerHTML = `
@@ -2866,14 +3207,16 @@ function renderSet(){
     <div class="sub">持仓只存在这台设备的浏览器里，云端任务默认看不到，所以微信推送里本来没有「持有仓」。若要带上，点下面按钮复制 JSON，粘贴到 GitHub 仓库的 Secrets 里，名称必须是 <code>HOLDINGS_JSON</code>。每次买卖后请再复制一次并更新这个密钥。脚本只在发推送时读取，不会写入 data.json 或仓库。</div>
     <div class="row" style="margin-top:10px"><button class="pri sm" data-act="copyHoldingsPush">复制持仓给推送用</button></div>
   </div>
+  ${renderSnapCard()}
   <div class="card"><h2>数据备份</h2>
     <div class="row"><button data-act="export">导出 JSON</button><button data-act="import">导入 JSON</button></div>
     <label class="row sub" style="margin-top:8px;gap:8px"><input type="checkbox" id="expKeys"> 导出时包含 API Key（不建议；备份文件请妥善保管）</label>
-    <input type="file" id="impFile" accept="application/json,.json" style="display:none">
-    <div class="sub" style="margin-top:8px">电脑和手机的数据是各自独立的，想同步就在一边导出、另一边导入。</div>
+    <input type="file" id="impFile" accept="application/json,.json,.txt,text/plain" style="display:none">
+    <div class="sub" style="margin-top:8px">这是明文文件备份（可选含 API Key）。电脑和手机同步更推荐上面的「跨设备同步」加密快照；如果把快照文字存成文件再导入这里，也会自动识别。</div>
     <button class="dang sm" data-act="wipe" style="margin-top:10px">清除全部本地数据</button>
   </div>`;
   $('#sTheme').value = st.theme; $('#sUp').value = st.upColor; $('#sRef').value = String(st.refreshSec); $('#sLead').value = String(st.leadHours);
+  paintSnapOut();
 }
 
 /* ============ AI ============ */
@@ -3030,6 +3373,7 @@ async function compressImage(file, maxEdge, quality){
 }
 function renderThumbs(){
   const el = $('#imgPreviews'); if(!el) return;
+  if(!pendingImgs.length && typeof setShotHint==='function'){ const sh=$('#shotHint'); if(sh && /✅ 已附上|已附上/.test(sh.textContent||'')) setShotHint(''); }
   el.innerHTML = pendingImgs.map((im,i) => '<div class="thumb-wrap"><img src="'+esc(dataUrlOf(im))+'" alt="'+esc(im.name||'图片')+'"><button type="button" aria-label="移除图片" data-act="rmImg" data-i="'+i+'">×</button></div>').join('');
 }
 async function addImageFiles(files){
@@ -3043,6 +3387,36 @@ async function addImageFiles(files){
       pendingImgs.push(im);
       renderThumbs();
     }catch(e){ toast(e.message||'图片处理失败'); }
+  }
+  if(pendingImgs.length) afterImagesAdded(list.length);
+}
+let shotPending = false;
+function setShotHint(msg, kind){
+  const el = $('#shotHint'); if(!el) return;
+  if(!msg){ el.style.display='none'; el.textContent=''; el.className='shot-hint'; return; }
+  el.className = 'shot-hint ' + (kind||'info'); el.textContent = msg; el.style.display = 'block';
+}
+function hasHoldPrompt(){ const inp = $('#chatIn'); return !!(inp && String(inp.value||'').includes(HOLD_SHOT_MARK)); }
+function ensureHoldPrompt(){
+  const inp = $('#chatIn'); if(!inp) return;
+  if(!hasHoldPrompt()) inp.value = (inp.value ? inp.value.trim()+'\n' : '') + HOLD_SHOT_PROMPT;
+}
+function pulseSend(){
+  const b = $('#btnSend'); if(!b) return;
+  b.classList.remove('pulse'); void b.offsetWidth; b.classList.add('pulse');
+  try{ b.scrollIntoView({block:'nearest', behavior:'smooth'}); }catch(_){}
+}
+function openImgPicker(){
+  const f = $('#imgFile'); if(!f) return false;
+  try{ f.click(); return true; }catch(_){ return false; }
+}
+function afterImagesAdded(n){
+  if(shotPending || hasHoldPrompt()){
+    shotPending = false; ensureHoldPrompt();
+    setShotHint('✅ 已附上 '+pendingImgs.length+' 张截图，并填好了识别指令。点右下角「发送」开始识别；识别完成后，回复气泡下方会出现「一键导入/覆盖到本地持仓」按钮。', 'ok');
+    pulseSend();
+  } else {
+    setShotHint('已附上 '+pendingImgs.length+' 张图片，可补充说明后点「发送」。', 'ok');
   }
 }
 function renderMsgImgs(m){
@@ -3124,12 +3498,18 @@ let chatAbort = null;
 function renderChat(){
   const box = $('#chatbox'); const msgs = S.ai.chat;
   (msgs||[]).forEach(m => { if(m && m.role==='assistant'){ if(!m.id) m.id = uid(); attachHoldingsDraft(m); attachStrategyDraft(m); } });
-  box.innerHTML = msgs.length ? msgs.map(m => {
+  box.innerHTML = msgs.length ? msgs.map((m,mi) => {
     const body = m.role==='user' ? esc(m.content) : markdown(stripMachineFences(m.content));
-    const preview = m.role==='assistant' ? (renderHoldingsPreview(m)+renderStrategyPreview(m)) : '';
+    let preview = m.role==='assistant' ? (renderHoldingsPreview(m)+renderStrategyPreview(m)) : '';
+    if(m.role==='assistant' && !m.holdDraft && m.content && !/^⚠️/.test(m.content) && !(chatAbort && mi===msgs.length-1)){
+      const pv = msgs[mi-1];
+      if(pv && pv.role==='user' && String(pv.content||'').includes(HOLD_SHOT_MARK)){
+        preview += `<div class="hold-preview"><div class="warnbox">没有从这条回复里找到可导入的持仓数据（可能是截图看不清，或 AI 没有按格式输出）。</div><div class="row"><button class="sm" data-act="holdRetry">让 AI 按格式补输出一遍</button></div></div>`;
+      }
+    }
     return `<div class="msg ${m.role==='user'?'u':'a'}"><span class="who">${m.role==='user'?'我':esc(m.who||'AI')}</span>${renderMsgImgs(m)}<div class="b ${m.role==='user'?'':'md'}">${body}</div>${preview}</div>`;
   }).join('')
-    : '<div class="empty">选一个 AI，输入问题。可点“插入自选+持仓”，或点“📷 截图识别持仓”把持仓写入本机。想改雷达页的买点或规则，直接说（例如“把 ADBE 买点改成 200/180”），确认「应用到雷达」后才会改，只存在本机浏览器。</div>';
+    : '<div class="empty">选一个 AI，输入问题。可点“插入自选+持仓”，或点“📷 截图识别持仓”选图 → 发送 → 在回复下方点「一键导入/覆盖到本地持仓」。想改雷达页的买点或规则，直接说（例如“把 ADBE 买点改成 200/180”），确认「应用到雷达」后才会改，只存在本机浏览器。</div>';
   box.scrollTop = box.scrollHeight;
 }
 function renderAIHead(){
@@ -3148,7 +3528,7 @@ async function sendChat(){
   const k = S.ai.provider;
   if(hasImg){ const why = visionBlockReason(k); if(why){ toast(why, 5600); return; } }
   const text = text0 || DEFAULT_IMG_PROMPT;
-  const images = pendingImgs.slice(); pendingImgs = []; renderThumbs();
+  const images = pendingImgs.slice(); pendingImgs = []; renderThumbs(); setShotHint(''); shotPending = false;
   const umsg = {role:'user', content:text}; if(images.length) umsg.images = images;
   S.ai.chat.push(umsg); inp.value = '';
   const amsg = {role:'assistant', id:uid(), content:'', who:PROVIDERS[k].name+' · '+aiConf(k).model};
@@ -3229,7 +3609,8 @@ document.addEventListener('click', async e => {
   const q = e.target.closest('[data-q]'); if(q){ const inp = $('#chatIn'); inp.value = (inp.value?inp.value+'\n':'') + QUICK[+q.dataset.q][1]; inp.focus(); return; }
   const a = e.target.closest('[data-act]'); if(!a) return;
   const act = a.dataset.act; if(a.tagName==='A') e.preventDefault();
-  const h = ACTIONS[act]; if(h) await h(a);
+  const h = ACTIONS[act];
+  if(h){ try{ await h(a); }catch(err){ console.error(err); toast('操作出错：'+((err&&err.message)||err), 5200); } }
 });
 
 const ACTIONS = {
@@ -3300,12 +3681,62 @@ const ACTIONS = {
     S.settings.notify = p==='granted'; save(); renderCal(); toast(p==='granted'?'已开启（页面保持打开时有效）':'未获得通知权限，将只显示页面内提醒');
   },
   inject: () => { const inp = $('#chatIn'); inp.value = (inp.value?inp.value+'\n\n':'') + '以下是我当前的数据：\n' + contextText() + '\n\n'; inp.focus(); },
-  holdShot: () => { const inp = $('#chatIn'); const p = HOLD_SHOT_PROMPT; if(!String(inp.value||'').includes('更新到我的持仓')) inp.value = (inp.value?inp.value.trim()+'\n':'') + p; inp.focus(); if(!pendingImgs.length){ toast('请先插入或粘贴持仓截图，再点发送'); const f=$('#imgFile'); if(f) f.click(); } },
+  holdShot: () => {
+    ensureHoldPrompt();
+    if(pendingImgs.length){
+      shotPending = false;
+      setShotHint('✅ 已附上 '+pendingImgs.length+' 张截图，并填好了识别指令。点右下角「发送」开始识别；识别完成后，回复气泡下方会出现「一键导入/覆盖到本地持仓」按钮。', 'ok');
+      pulseSend(); return;
+    }
+    shotPending = true;
+    setShotHint('📷 请在弹出的窗口里选择持仓截图（最多 4 张）。没弹出来？请点旁边的「🖼 插入图片」，或直接 Ctrl+V / 长按粘贴、把截图拖进输入框；选好后再点「发送」。', 'info');
+    if(!openImgPicker()) setShotHint('没能自动打开图片选择器。识别指令已填好：请点「🖼 插入图片」，或粘贴/拖入截图，然后点「发送」。', 'warn');
+  },
+  holdRetry: () => {
+    const inp = $('#chatIn'); if(!inp) return;
+    inp.value = '请把上面识别到的持仓，严格按 holdings-json 代码块格式再输出一遍（没有成本价的 cost 写 null，不要编造；看不清的不要写）。';
+    setShotHint('已填好补充指令，点「发送」。', 'info'); pulseSend();
+  },
+  snapExport: async () => {
+    if(!snapCryptoOk()) return snapSay('当前环境不支持加密（需要 https 网址，或直接打开本机文件）。', true);
+    const p1 = $('#snapPw1').value, p2 = $('#snapPw2').value;
+    if(p1.length < 6) return snapSay('快照密码至少 6 位。', true);
+    if(p1 !== p2) return snapSay('两次输入的快照密码不一致。', true);
+    snapSay('正在加密…');
+    try{
+      snapLastOut = await snapEncrypt(snapCollect({noHist: $('#snapNoHist').checked}), p1);
+      paintSnapOut();
+      snapSay('已生成。请点「复制快照」，密码请自己记好（不会保存在任何地方）。');
+    }catch(e){ snapSay('生成失败：'+(e.message||e), true); }
+  },
+  snapCopy: async () => {
+    const text = snapLastOut || ($('#snapOut') && $('#snapOut').value) || '';
+    if(!text) return toast('还没有生成快照');
+    try{
+      if(navigator.clipboard && window.isSecureContext && navigator.clipboard.writeText) await navigator.clipboard.writeText(text);
+      else await copyTextFallback(text);
+      toast('✅ 已复制快照（'+text.length+' 字符）。去微信文件传输助手粘贴发送吧。', 5200);
+    }catch(e){
+      const ta = $('#snapOut'); if(ta){ ta.focus(); ta.select(); }
+      toast('自动复制没成功，已选中文字，请手动复制（Ctrl+C / 长按拷贝）', 5200);
+    }
+  },
+  snapImport: async () => {
+    const str = snapExtract($('#snapIn').value), pw = $('#snapInPw').value;
+    if(!str) return snapSay('没有找到以 INVSNAP1. 开头的快照，请重新复制完整内容。', true);
+    if(!pw) return snapSay('请输入快照密码。', true);
+    snapSay('正在解密…');
+    try{
+      const snap = await snapDecrypt(str, pw);
+      snapSay('解密成功，请在弹窗里核对摘要后确认。');
+      snapConfirmDialog(snap);
+    }catch(e){ snapSay(e.message||String(e), true); }
+  },
   holdApply: a => applyHoldingsDraft(a.dataset.mid, a.dataset.mode, a.closest('.hold-preview')),
   holdApplyCancel: a => dismissHoldingsDraft(a.dataset.mid),
   chartToggle: a => { const k=a.dataset.k; if(!k) return; CHART_ON[k] = CHART_ON[k]===false; paintPlanChart(); const on = CHART_ON[k]!==false; a.classList.toggle('off', !on); },
   planHistClear: () => { if(!(S.planHist||[]).length) return; if(!confirm('清除本机保存的仓位走势记录？持仓本身不会被删除。')) return; S.planHist = []; save(); renderHold(); toast('已清除走势记录'); },
-  attachImg: () => { const f = $('#imgFile'); if(f) f.click(); },
+  attachImg: () => { if(!openImgPicker()) setShotHint('没能自动打开图片选择器，请直接粘贴（Ctrl+V / 长按粘贴）或把图片拖进输入框。', 'warn'); },
   rmImg: a => { const i = +a.dataset.i; if(Number.isInteger(i) && i>=0){ pendingImgs.splice(i,1); renderThumbs(); } },
   viewImg: a => { if(a && a.src) openDlg('图片', '<img src="'+esc(a.src)+'" alt="" style="width:100%;border-radius:8px">', ''); },
   send: () => sendChat(),
@@ -3479,6 +3910,7 @@ document.addEventListener('change', e => {
   else if(t.id==='impFile' && t.files[0]){
     const f = t.files[0]; const r = new FileReader();
     r.onload = () => { try{
+      if(snapRouteText(r.result)){ t.value=''; return; }
       const o = JSON.parse(r.result); if(!o || typeof o!=='object' || !('watch' in o || 'hold' in o || 'events' in o)) throw new Error('不是有效的备份文件');
       if(!confirm('导入会覆盖当前的自选、持仓、事件、设置和本机雷达策略，确定？')) return;
       const keys = o.keys; delete o.keys; S = merge(defaults(), o); if(keys && typeof keys==='object') KEYS = keys; S.quotes = S.quotes || {};
@@ -3510,6 +3942,10 @@ function setupTimer(){
 }
 matchMedia('(prefers-color-scheme: dark)').addEventListener && matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyTheme);
 window.addEventListener('resize', () => { if(curTab==='hold' || curTab==='radar') paintPlanChart(); });
+if(WIDE_MQ){
+  const onWide = () => { if(!booted || radarDrag) return; try{ renderRadar(); }catch(e){ console.warn(e); } if(curTab==='hold' || curTab==='radar') requestAnimationFrame(paintPlanChart); };
+  if(WIDE_MQ.addEventListener) WIDE_MQ.addEventListener('change', onWide); else if(WIDE_MQ.addListener) WIDE_MQ.addListener(onWide);
+}
 document.addEventListener('visibilitychange', () => { if(document.visibilityState==='visible'){ checkReminders(); } });
 
 /* ============ 启动 ============ */
