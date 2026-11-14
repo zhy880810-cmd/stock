@@ -93,6 +93,8 @@ dialog::backdrop{background:rgba(0,0,0,.5)}
 .rd li{margin:.25em 0}
 .rd .mv{border:1px solid var(--line);border-radius:10px;padding:10px;margin:8px 0;background:var(--bg)}
 .rd .mv b{font-size:16px}
+.rd .srcs{font-size:13px;color:var(--sub);margin:.4em 0 0;line-height:1.65}
+.rd .srcs a{text-decoration:none;border-bottom:1px solid currentColor}
 .alert{border-left:4px solid var(--danger);background:rgba(220,38,38,.1);padding:8px 10px;margin:6px 0;border-radius:6px;font-size:14px}
 .okbox{border-left:4px solid var(--down);background:rgba(22,163,74,.1);padding:8px 10px;margin:6px 0;border-radius:6px;font-size:14px}
 .warnbox{border-left:4px solid var(--warn);background:rgba(245,158,11,.12);padding:8px 10px;margin:6px 0;border-radius:6px;font-size:14px}
@@ -648,7 +650,128 @@ function computeAlerts(){
   });
   return out.sort((a,b)=>b.lv-a.lv);
 }
-const safeUrl = u => /^https?:\/\//i.test(u||'') ? u : '#';
+function safeHttpUrl(u){
+  const raw = String(u || '').trim();
+  if(!raw || raw.length > 2000 || /[\s<>"'`]/.test(raw)) return '';
+  if(/^(javascript|data|vbscript|file|about|blob):/i.test(raw)) return '';
+  try{
+    const url = new URL(raw);
+    if(url.protocol !== 'http:' && url.protocol !== 'https:') return '';
+    return url.href;
+  }catch(_){ return ''; }
+}
+const safeUrl = u => safeHttpUrl(u) || '#';
+const SRC_HOST = {
+  'reuters.com':'路透','bloomberg.com':'彭博','wsj.com':'华尔街日报','ft.com':'金融时报',
+  'cnbc.com':'CNBC','apnews.com':'美联社','ap.org':'美联社','bbc.com':'BBC','bbc.co.uk':'BBC',
+  'nytimes.com':'纽约时报','washingtonpost.com':'华盛顿邮报','caixin.com':'财新',
+  'wallstreetcn.com':'华尔街见闻','cls.cn':'财联社','yicai.com':'第一财经','stcn.com':'证券时报',
+  'eastmoney.com':'东方财富','sina.com.cn':'新浪财经','thepaper.cn':'澎湃','xinhuanet.com':'新华社',
+  'people.com.cn':'人民网','yahoo.com':'雅虎财经','finance.yahoo.com':'雅虎财经',
+  'marketwatch.com':'MarketWatch','investing.com':'Investing','seekingalpha.com':'Seeking Alpha',
+  'coindesk.com':'CoinDesk','theguardian.com':'卫报','forbes.com':'福布斯',
+  'businessinsider.com':'Business Insider','economist.com':'经济学人','barrons.com':'巴伦',
+  'axios.com':'Axios','semafor.com':'Semafor','politico.com':'Politico'
+};
+function sourceLabel(u){
+  try{
+    const host = new URL(u).hostname.replace(/^www\./i,'').toLowerCase();
+    const parts = host.split('.');
+    for(let i=0;i<parts.length-1;i++){
+      const suf = parts.slice(i).join('.');
+      if(SRC_HOST[suf]) return SRC_HOST[suf];
+    }
+    return host;
+  }catch(_){ return u; }
+}
+function radarLink(url, label){
+  const u = safeHttpUrl(url);
+  if(!u) return esc(label || '');
+  return `<a href="${esc(u)}" target="_blank" rel="noopener noreferrer">${esc(label || sourceLabel(u))}</a>`;
+}
+/** 把雷达正文里的 [[n]](url)、Markdown 链接、裸链接、脚注收成可点击「来源」；只输出转义后的 HTML。 */
+function trimUrl(u){
+  let x = String(u || '').trim();
+  x = x.replace(/[.,;:!?）】]+$/, '');
+  while(x.endsWith(')') && (x.split(')').length-1) > (x.split('(').length-1)) x = x.slice(0,-1);
+  return x;
+}
+function formatRadarText(raw){
+  const s = String(raw ?? '');
+  if(!s) return '';
+  const collected = [];
+  const seen = new Set();
+  const add = url => {
+    const u = safeHttpUrl(trimUrl(url));
+    if(!u) return '';
+    const k = u.replace(/\/+$/, '');
+    if(!seen.has(k)){ seen.add(k); collected.push(u); }
+    return u;
+  };
+  const parseParenUrl = start => {
+    let i = start, depth = 1;
+    while(i < s.length){
+      const c = s[i];
+      if(c === '(') depth++;
+      else if(c === ')'){ depth--; if(depth === 0) return {url: s.slice(start, i).trim(), end: i+1}; }
+      else if(c === '\n') break;
+      i++;
+    }
+    return null;
+  };
+  let html = '', i = 0;
+  while(i < s.length){
+    if(s[i] === '[' && s[i+1] === '['){
+      const m = s.slice(i).match(/^\[\[(\d+)\]\]/);
+      if(m){
+        const after = i + m[0].length;
+        if(s[after] === '('){
+          const p = parseParenUrl(after+1);
+          if(p){ add(p.url); i = p.end; continue; }
+        }
+        i += m[0].length; continue;
+      }
+    }
+    if(s[i] === '['){
+      let m = s.slice(i).match(/^\[(\d+)\]:\s*(https?:\/\/\S+)/i);
+      if(m){ add(m[2]); i += m[0].length; continue; }
+      m = s.slice(i).match(/^\[\^?(\d+)\](?!\()/);
+      if(m){ i += m[0].length; continue; }
+      m = s.slice(i).match(/^\[([^\]]+)\]/);
+      if(m && s[i+m[0].length] === '('){
+        const p = parseParenUrl(i+m[0].length+1);
+        if(p){
+          const url = p.url.replace(/\s+("[^"]*"|'[^']*')\s*$/, '');
+          const u = add(url);
+          const label = String(m[1]).trim();
+          if(label && !/^\d+$/.test(label) && !/^https?:\/\//i.test(label)) html += u ? radarLink(u, label) : esc(label);
+          i = p.end; continue;
+        }
+      }
+    }
+    if(s[i] === '<'){
+      const m = s.slice(i).match(/^<(https?:\/\/[^>\s]+)>/i);
+      if(m){ add(m[1]); i += m[0].length; continue; }
+    }
+    if(/^https?:\/\//i.test(s.slice(i))){
+      const m = s.slice(i).match(/^https?:\/\/[^\s<>"'）】，。；、]+/i);
+      if(m){
+        const rawUrl = trimUrl(m[0]);
+        add(rawUrl);
+        i += (rawUrl && m[0].startsWith(rawUrl)) ? rawUrl.length : m[0].length;
+        continue;
+      }
+    }
+    html += esc(s[i]);
+    i++;
+  }
+  html = html.replace(/[ \t]{2,}/g,' ').replace(/\s+([，。；、,.!?？！])/g,'$1').replace(/^[ \t]+|[ \t]+$/g,'');
+  if(collected.length){
+    html += '<div class="srcs">来源：' + collected.map(u => radarLink(u, sourceLabel(u))).join(' · ') + '</div>';
+  }
+  return html;
+}
+
 function renderRadar(){
   const el = $('#tab-radar'); if(!el) return;
   const C = CLOUD, R = C && C.radar, H = [];
@@ -684,11 +807,11 @@ function renderRadar(){
   if(R && R.market_summary){
     const m = R.market_summary;
     let t = `<div class="card rd"><h2>🌙 隔夜美股${C.radar_stale?'<span class="badge warn">旧内容 '+esc(C.radar_date||'')+'</span>':''}</h2>`;
-    if(m.headline) t += `<div class="big">${esc(m.headline)}</div>`;
+    if(m.headline) t += `<div class="big">${formatRadarText(m.headline)}</div>`;
     const idx = C.indices ? Object.values(C.indices) : [];
     if(idx.length) t += '<div class="idx">' + idx.map(i=>`<div>${esc(i.name||'')}<b class="${cls(i.change_pct)}">${fmtPct(i.change_pct)}</b><span class="sub">${esc(String(i.date||'').slice(5))}</span></div>`).join('') + '</div>';
-    if(m.overview) t += `<p style="margin:.4em 0">${esc(m.overview)}</p>`;
-    if(m.macro && m.macro.length) t += '<h3>宏观 / 美联储</h3><ul>' + m.macro.map(x=>`<li>${esc(x)}</li>`).join('') + '</ul>';
+    if(m.overview) t += `<p style="margin:.4em 0">${formatRadarText(m.overview)}</p>`;
+    if(m.macro && m.macro.length) t += '<h3>宏观 / 美联储</h3><ul>' + m.macro.map(x=>`<li>${formatRadarText(x)}</li>`).join('') + '</ul>';
     t += '</div>'; H.push(t);
   }
 
@@ -710,14 +833,19 @@ function renderRadar(){
 
   // 自选新闻
   if(R && R.watchlist_news && R.watchlist_news.length){
-    H.push('<div class="card rd"><h2>📰 自选相关消息</h2>' + R.watchlist_news.map(n => `<div class="item" style="align-items:flex-start"><div class="grow"><div class="nm">${esc(n.symbol)}<span class="badge ${n.sentiment==='利空'?'err':n.sentiment==='利好'?'':'warn'}">${esc(n.sentiment||'中性')}</span></div><div style="white-space:normal">${esc(n.summary)}</div></div></div>`).join('') + '</div>');
+    H.push('<div class="card rd"><h2>📰 自选相关消息</h2>' + R.watchlist_news.map(n => `<div class="item" style="align-items:flex-start"><div class="grow"><div class="nm">${esc(n.symbol)}<span class="badge ${n.sentiment==='利空'?'err':n.sentiment==='利好'?'':'warn'}">${esc(n.sentiment||'中性')}</span></div><div style="white-space:normal">${formatRadarText(n.summary)}</div></div></div>`).join('') + '</div>');
   }
   // 异动
   if(R && R.unusual_movers && R.unusual_movers.length){
-    H.push('<div class="card rd"><h2>🔥 未关注但值得留意的异动</h2>' + R.unusual_movers.map(m => `<div class="mv"><b>${esc(m.ticker)}</b> <span class="sub">${esc(m.name||'')}</span> <b class="${/^\s*-/.test(m.move)?'down':/^\s*\+/.test(m.move)?'up':''}" style="float:right">${esc(m.move)}</b><div style="margin-top:4px">${esc(m.reason)}</div><div class="sub" style="margin-top:4px">关联：${esc(m.relevance||'—')}</div></div>`).join('') + '<div class="sub">AI 联网整理，可能有误，只能当线索，不是买入理由。</div></div>');
+    H.push('<div class="card rd"><h2>🔥 未关注但值得留意的异动</h2>' + R.unusual_movers.map(m => `<div class="mv"><b>${esc(m.ticker)}</b> <span class="sub">${esc(m.name||'')}</span> <b class="${/^\s*-/.test(m.move)?'down':/^\s*\+/.test(m.move)?'up':''}" style="float:right">${esc(m.move)}</b><div style="margin-top:4px">${formatRadarText(m.reason)}</div><div class="sub" style="margin-top:4px">关联：${formatRadarText(m.relevance||'—')}</div></div>`).join('') + '<div class="sub">AI 联网整理，可能有误，只能当线索，不是买入理由。</div></div>');
   }
   if(R && R.sources && R.sources.length){
-    H.push('<div class="card rd"><details><summary class="sub">信息来源（'+R.sources.length+'）</summary><ul>' + R.sources.map(x=>`<li><a href="${esc(safeUrl(x.url))}" target="_blank" rel="noopener noreferrer">${esc(x.title||x.url)}</a></li>`).join('') + '</ul></details></div>');
+    const srcItems = (R.sources||[]).map(x => {
+      const u = safeHttpUrl(x && x.url);
+      if(!u) return '';
+      return `<li>${radarLink(u, (x.title||'').trim() || sourceLabel(u))}</li>`;
+    }).filter(Boolean);
+    if(srcItems.length) H.push('<div class="card rd"><details><summary class="sub">信息来源（'+srcItems.length+'）</summary><ul>' + srcItems.join('') + '</ul></details></div>');
   }
   H.push('<div class="note">⚠️ 本页由 GitHub Pages 公开发布：云端只有自选代码、价格和 AI 新闻，<b>不含</b>你的持仓数量、成本和金额；这些只存在你自己的浏览器里（所以电脑和手机要各自录入，或用「设置→导出/导入」同步）。内容仅供学习与记录参考，不构成投资建议。</div>');
   el.innerHTML = H.join('');
