@@ -1,8 +1,8 @@
 {
   "example": false,
-  "schema": 1,
-  "updated_at": "2026-11-14T06:44:51Z",
-  "updated_at_beijing": "2026-11-14 14:44",
+  "schema": 2,
+  "updated_at": "2026-11-14T08:15:49Z",
+  "updated_at_beijing": "2026-11-14 16:15",
   "watchlist": [
     "SPYM",
     "QQQM",
@@ -20,64 +20,170 @@
   "prices": {
     "SPYM": {
       "price": 88.77,
+      "close": 88.77,
       "prev_close": 89.13,
       "change_pct": -0.4,
       "date": "2026-11-13",
-      "currency": "USD"
-    },
-    "QQQM": {
-      "price": 279.97,
-      "prev_close": 283.39,
-      "change_pct": -1.21,
-      "date": "2026-11-13",
-      "currency": "USD"
-    },
-    "TQQQ": {
-      "price": 57.68,
-      "prev_close": 59.88,
-      "change_pct": -3.67,
-      "date": "2026-11-13",
-      "currency": "USD"
-    },
-    "SOXL": {
-      "price": 58.32,
-      "prev_close": 65.53,
-      "change_pct": -11.0,
-      "date": "2026-11-13",
-      "currency": "USD"
+      "currency": "USD",
+      "price_label": "收盘"
     },
     "NVDA": {
-      "price": 162.85,
+      "price": 161.01,
+      "close": 162.85,
       "prev_close": 166.19,
-      "change_pct": -2.01,
+      "change_pct": -3.12,
       "date": "2026-11-13",
-      "currency": "USD"
+      "currency": "USD",
+      "price_label": "盘后",
+      "extended_price": 161.01,
+      "high_52w": 243.37,
+      "low_52w": 148.8,
+      "high_3m": 243.37,
+      "low_3m": 148.8
+    },
+    "ADBE": {
+      "price": 241.95,
+      "close": 243.08,
+      "prev_close": 238.54,
+      "change_pct": 1.43,
+      "date": "2026-11-13",
+      "currency": "USD",
+      "price_label": "盘后",
+      "extended_price": 241.95,
+      "high_52w": 362.71,
+      "low_52w": 190.12,
+      "high_3m": 294.53,
+      "low_3m": 224.67
+    },
+    "BRK.B": {
+      "price": 592.3,
+      "close": 592.94,
+      "prev_close": 589.83,
+      "change_pct": 0.42,
+      "date": "2026-11-13",
+      "currency": "USD",
+      "price_label": "盘后",
+      "extended_price": 592.3,
+      "high_52w": 596.92,
+      "low_52w": 464.01,
+      "high_3m": 596.92,
+      "low_3m": 495.68
+    },
+    "BRK-B": {
+      "price": 592.3,
+      "close": 592.94,
+      "prev_close": 589.83,
+      "change_pct": 0.42,
+      "date": "2026-11-13",
+      "currency": "USD",
+      "price_label": "盘后",
+      "extended_price": 592.3,
+      "high_52w": 596.92,
+      "low_52w": 464.01,
+      "high_3m": 596.92,
+      "low_3m": 495.68
+    },
+    "TQQQ": {
+      "price": 56.2901,
+      "close": 57.68,
+      "prev_close": 59.88,
+      "change_pct": -6.0,
+      "date": "2026-11-13",
+      "currency": "USD",
+      "price_label": "盘后",
+      "extended_price": 56.2901,
+      "high_52w": 88.09,
+      "low_52w": 37.32,
+      "high_3m": 85.32,
+      "low_3m": 50.25
+    },
+    "SOXL": {
+      "price": 55.68,
+      "close": 58.32,
+      "prev_close": 65.53,
+      "change_pct": -15.03,
+      "date": "2026-11-13",
+      "currency": "USD",
+      "price_label": "盘后",
+      "extended_price": 55.68,
+      "high_52w": 302.0,
+      "low_52w": 28.12,
+      "high_3m": 169.83,
+      "low_3m": 40.59
+    },
+    "KORU": {
+      "price": 7.45,
+      "close": 7.68,
+      "prev_close": 8.12,
+      "change_pct": -8.25,
+      "date": "2026-11-13",
+      "currency": "USD",
+      "price_label": "盘后",
+      "extended_price": 7.45,
+      "high_52w": 63.985,
+      "low_52w": 6.284,
+      "high_3m": 25.37,
+      "low_3m": 6.46
+    },
+    "QQQM": {
+      "price": 277.7999,
+      "close": 279.97,
+      "prev_close": 283.39,
+      "change_pct": -1.97,
+      "date": "2026-11-13",
+      "currency": "USD",
+      "price_label": "盘后",
+      "extended_price": 277.7999,
+      "high_52w": 314.115,
+      "low_52w": 228.75,
+      "high_3m": 314.115,
+      "low_3m": 266.52
+    },
+    "SCHD": {
+      "price": 36.0799,
+      "close": 36.12,
+      "prev_close": 35.93,
+      "change_pct": 0.42,
+      "date": "2026-11-13",
+      "currency": "USD",
+      "price_label": "盘后",
+      "extended_price": 36.0799,
+      "high_52w": 36.38,
+      "low_52w": 26.6,
+      "high_3m": 36.38,
+      "low_3m": 32.36
     }
   },
   "price_errors": {},
   "indices": {
     "^GSPC": {
       "price": 7561.6699,
+      "close": 7561.6699,
       "prev_close": 7592.3999,
       "change_pct": -0.4,
       "date": "2026-11-13",
       "currency": "USD",
+      "price_label": "收盘",
       "name": "标普500"
     },
     "^IXIC": {
       "price": 25136.2695,
+      "close": 25136.2695,
       "prev_close": 25366.0898,
       "change_pct": -0.91,
       "date": "2026-11-13",
       "currency": "USD",
+      "price_label": "收盘",
       "name": "纳斯达克"
     },
     "^DJI": {
       "price": 52347.5508,
+      "close": 52347.5508,
       "prev_close": 52297.0898,
       "change_pct": 0.1,
       "date": "2026-11-13",
       "currency": "USD",
+      "price_label": "收盘",
       "name": "道琼斯"
     }
   },
@@ -85,6 +191,381 @@
     "USDCNY": 6.6849,
     "USDHKD": 7.846,
     "source": "open.er-api.com"
+  },
+  "plan": {
+    "schema": 1,
+    "session_date": "2026-11-13",
+    "buy_table": [
+      {
+        "symbol": "NVDA",
+        "yf": "NVDA",
+        "name": "英伟达",
+        "kind": "nvda",
+        "price": 161.01,
+        "close": 162.85,
+        "extended_price": 161.01,
+        "price_label": "盘后",
+        "prev_close": 166.19,
+        "change_pct": -3.12,
+        "date": "2026-11-13",
+        "currency": "USD",
+        "stale": false,
+        "error": null,
+        "levels": [
+          150,
+          140,
+          125,
+          110
+        ],
+        "watch_only": true,
+        "nearest_level": 150.0,
+        "gap_price": 11.01,
+        "gap_pct": 7.34,
+        "touched_now": [],
+        "newly_touched": [],
+        "at_buy": false,
+        "sort_gap_pct": null,
+        "high_52w": 243.37,
+        "low_52w": 148.8,
+        "high_3m": 243.37,
+        "low_3m": 148.8,
+        "extra_tranches": [],
+        "tranche_levels": [
+          150,
+          140,
+          125,
+          110
+        ],
+        "ref_sl": null,
+        "ref_tp": null,
+        "sl_tp_reason": "",
+        "sl_tp_url": "",
+        "notes": [
+          "在 2026-11-18 财报前只看不买；财报后再按 150 / 140 / 125 / 110 提醒。"
+        ]
+      },
+      {
+        "symbol": "BRK.B",
+        "yf": "BRK-B",
+        "name": "伯克希尔B",
+        "kind": "brk",
+        "price": 592.3,
+        "close": 592.94,
+        "extended_price": 592.3,
+        "price_label": "盘后",
+        "prev_close": 589.83,
+        "change_pct": 0.42,
+        "date": "2026-11-13",
+        "currency": "USD",
+        "stale": false,
+        "error": null,
+        "levels": [
+          560,
+          530
+        ],
+        "watch_only": false,
+        "nearest_level": 560.0,
+        "gap_price": 32.3,
+        "gap_pct": 5.77,
+        "touched_now": [],
+        "newly_touched": [],
+        "at_buy": false,
+        "sort_gap_pct": 5.7679,
+        "high_52w": 596.92,
+        "low_52w": 464.01,
+        "high_3m": 596.92,
+        "low_3m": 495.68,
+        "extra_tranches": [],
+        "tranche_levels": [
+          560,
+          530
+        ],
+        "ref_sl": null,
+        "ref_tp": null,
+        "sl_tp_reason": "",
+        "sl_tp_url": "",
+        "notes": []
+      },
+      {
+        "symbol": "KORU",
+        "yf": "KORU",
+        "name": "韩国3倍做多",
+        "kind": "levered",
+        "price": 7.45,
+        "close": 7.68,
+        "extended_price": 7.45,
+        "price_label": "盘后",
+        "prev_close": 8.12,
+        "change_pct": -8.25,
+        "date": "2026-11-13",
+        "currency": "USD",
+        "stale": false,
+        "error": null,
+        "levels": [
+          7,
+          6.5
+        ],
+        "watch_only": false,
+        "nearest_level": 7.0,
+        "gap_price": 0.45,
+        "gap_pct": 6.43,
+        "touched_now": [],
+        "newly_touched": [],
+        "at_buy": false,
+        "sort_gap_pct": 6.4286,
+        "high_52w": 63.985,
+        "low_52w": 6.284,
+        "high_3m": 25.37,
+        "low_3m": 6.46,
+        "extra_tranches": [],
+        "tranche_levels": [
+          7,
+          6.5
+        ],
+        "ref_sl": null,
+        "ref_tp": null,
+        "sl_tp_reason": "",
+        "sl_tp_url": "",
+        "notes": []
+      },
+      {
+        "symbol": "ADBE",
+        "yf": "ADBE",
+        "name": "Adobe",
+        "kind": "stock",
+        "price": 241.95,
+        "close": 243.08,
+        "extended_price": 241.95,
+        "price_label": "盘后",
+        "prev_close": 238.54,
+        "change_pct": 1.43,
+        "date": "2026-11-13",
+        "currency": "USD",
+        "stale": false,
+        "error": null,
+        "levels": [
+          225,
+          205,
+          190
+        ],
+        "watch_only": false,
+        "nearest_level": 225.0,
+        "gap_price": 16.95,
+        "gap_pct": 7.53,
+        "touched_now": [],
+        "newly_touched": [],
+        "at_buy": false,
+        "sort_gap_pct": 7.5333,
+        "high_52w": 362.71,
+        "low_52w": 190.12,
+        "high_3m": 294.53,
+        "low_3m": 224.67,
+        "extra_tranches": [],
+        "tranche_levels": [
+          225,
+          205,
+          190
+        ],
+        "ref_sl": null,
+        "ref_tp": null,
+        "sl_tp_reason": "",
+        "sl_tp_url": "",
+        "notes": [
+          "财报约北京时间 2026-12-10 早上。"
+        ]
+      },
+      {
+        "symbol": "TQQQ",
+        "yf": "TQQQ",
+        "name": "纳指3倍做多",
+        "kind": "levered",
+        "price": 56.2901,
+        "close": 57.68,
+        "extended_price": 56.2901,
+        "price_label": "盘后",
+        "prev_close": 59.88,
+        "change_pct": -6.0,
+        "date": "2026-11-13",
+        "currency": "USD",
+        "stale": false,
+        "error": null,
+        "levels": [
+          52,
+          50
+        ],
+        "watch_only": false,
+        "nearest_level": 52.0,
+        "gap_price": 4.2901,
+        "gap_pct": 8.25,
+        "touched_now": [],
+        "newly_touched": [],
+        "at_buy": false,
+        "sort_gap_pct": 8.2502,
+        "high_52w": 88.09,
+        "low_52w": 37.32,
+        "high_3m": 85.32,
+        "low_3m": 50.25,
+        "extra_tranches": [],
+        "tranche_levels": [
+          52,
+          50
+        ],
+        "ref_sl": null,
+        "ref_tp": null,
+        "sl_tp_reason": "",
+        "sl_tp_url": "",
+        "notes": []
+      },
+      {
+        "symbol": "SOXL",
+        "yf": "SOXL",
+        "name": "半导体3倍做多",
+        "kind": "levered",
+        "price": 55.68,
+        "close": 58.32,
+        "extended_price": 55.68,
+        "price_label": "盘后",
+        "prev_close": 65.53,
+        "change_pct": -15.03,
+        "date": "2026-11-13",
+        "currency": "USD",
+        "stale": false,
+        "error": null,
+        "levels": [
+          47,
+          41
+        ],
+        "watch_only": false,
+        "nearest_level": 47.0,
+        "gap_price": 8.68,
+        "gap_pct": 18.47,
+        "touched_now": [],
+        "newly_touched": [],
+        "at_buy": false,
+        "sort_gap_pct": 18.4681,
+        "high_52w": 302.0,
+        "low_52w": 28.12,
+        "high_3m": 169.83,
+        "low_3m": 40.59,
+        "extra_tranches": [],
+        "tranche_levels": [
+          47,
+          41
+        ],
+        "ref_sl": null,
+        "ref_tp": null,
+        "sl_tp_reason": "",
+        "sl_tp_url": "",
+        "notes": []
+      }
+    ],
+    "dca": [
+      {
+        "symbol": "QQQM",
+        "name": "纳指100 ETF",
+        "price": 277.7999,
+        "close": 279.97,
+        "extended_price": 277.7999,
+        "price_label": "盘后",
+        "prev_close": 283.39,
+        "change_pct": -1.97,
+        "date": "2026-11-13",
+        "currency": "USD",
+        "stale": false,
+        "error": null
+      },
+      {
+        "symbol": "SCHD",
+        "name": "美国红利 ETF",
+        "price": 36.0799,
+        "close": 36.12,
+        "extended_price": 36.0799,
+        "price_label": "盘后",
+        "prev_close": 35.93,
+        "change_pct": 0.42,
+        "date": "2026-11-13",
+        "currency": "USD",
+        "stale": false,
+        "error": null
+      }
+    ],
+    "levered": {
+      "symbols": [
+        "TQQQ",
+        "SOXL",
+        "KORU"
+      ],
+      "rule": "三只杠杆 ETF 同时只拿一只：哪只先到买点就买哪只；买了之后，另外两只只观察、不提示买入。",
+      "reached_buy": []
+    },
+    "sp500_movers": {
+      "session_date": "2026-11-13",
+      "gainers": [
+        {
+          "ticker": "CHTR",
+          "name": "Charter Communications",
+          "price": 138.39,
+          "change_pct": 4.32,
+          "date": "2026-11-13",
+          "reason": "未能核实"
+        },
+        {
+          "ticker": "STE",
+          "name": "Steris",
+          "price": 264.32,
+          "change_pct": 4.29,
+          "date": "2026-11-13",
+          "reason": "未能核实"
+        },
+        {
+          "ticker": "GPN",
+          "name": "Global Payments",
+          "price": 91.9,
+          "change_pct": 4.21,
+          "date": "2026-11-13",
+          "reason": "未能核实"
+        }
+      ],
+      "losers": [
+        {
+          "ticker": "AMD",
+          "name": "Advanced Micro Devices",
+          "price": 534.06,
+          "change_pct": -8.75,
+          "date": "2026-11-13",
+          "reason": "未能核实"
+        },
+        {
+          "ticker": "DELL",
+          "name": "Dell Technologies",
+          "price": 344.53,
+          "change_pct": -7.18,
+          "date": "2026-11-13",
+          "reason": "未能核实"
+        },
+        {
+          "ticker": "CSCO",
+          "name": "Cisco",
+          "price": 95.64,
+          "change_pct": -6.24,
+          "date": "2026-11-13",
+          "reason": "未能核实"
+        }
+      ],
+      "error": null
+    },
+    "swap_proposal": null,
+    "opportunities": [],
+    "levels_advice": {},
+    "big_news": [],
+    "ai_stale": true,
+    "calendar": {
+      "nvda_earnings": "2026-11-18",
+      "adbe_earnings_beijing": "2026-12-10",
+      "brk_decide_by": "2026-12-15",
+      "dca_deadline": "2026-12-31"
+    },
+    "disclaimer": "三倍杠杆 ETF 只适合短线。以上不构成投资建议。"
   },
   "radar": {
     "market_summary": {
@@ -172,12 +653,12 @@
     ]
   },
   "radar_date": "2026-11-14",
-  "radar_stale": false,
+  "radar_stale": true,
   "ai": {
     "provider": "grok",
-    "model": "grok-4.3",
-    "ok": true,
-    "error": null
+    "model": "grok-4.7",
+    "ok": false,
+    "error": "AI 返回的内容里找不到 JSON"
   },
   "disclaimer": "仅供学习与记录参考，不构成投资建议。"
 }
