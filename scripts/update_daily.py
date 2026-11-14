@@ -4,7 +4,7 @@
 
 - 不含任何持仓数量/成本/金额（隐私默认）。公开文件只写代码、价格、买点缺口和新闻。
 - 买点表、定投收盘价、距买点跌幅、标普 500 涨跌幅、止损/止盈/补充批次（技术参考：ATR + 近期高低点）均在本地计算，不由模型编造。
-- AI（Grok / Gemini）整个脚本只调用一次，只负责：标普 500 涨跌榜每只一句原因、1–3 条大新闻（各附一个链接）、至多一条明显更好的机会（只给代码和理由，价格仍由本地算）。
+- AI（Grok / Gemini）主流程只调用一次，只负责：标普 500 涨跌榜每只一句原因、1–3 条大新闻（各附一个链接）、至多一条明显更好的机会（只给代码和理由，价格仍由本地算）。若这次返回无法解析为 JSON，再追加一次很短的「只输出 JSON」修复调用。
 - 明显更好的机会会由脚本直接自动替换计划里被点名的标的（无需用户确认）：当前计划写在 data.json 的 plan.active（只有代码、买点、名称），config.json 只是首次的种子；替换记录写在 plan.swap_log。被换出的标的进入 plan.retired（网页上只在你标记已买入/持仓里有它时继续显示止损止盈）。
 - 若设置了 SERVERCHAN_KEY，每次运行后推送一条简短中文摘要到微信（不含任何持仓金额）。
 - AI 失败不影响行情：保留价格，并在 data.json 里写入错误说明。
@@ -14,7 +14,8 @@
   AI_PROVIDER      gemini（默认）或 grok
   GEMINI_API_KEY   / GEMINI_MODEL（默认 gemini-3.8-flash）
   XAI_API_KEY      / XAI_MODEL（默认 grok-4.7）/ XAI_BASE_URL（默认 https://api.x.ai/v1）
-  SERVERCHAN_KEY   可选，Server酱推送（不含金额）
+  SERVERCHAN_KEY   可选，Server酱推送
+  HOLDINGS_JSON    可选，仅用于生成微信推送里的「持有仓」（数量/成本/止盈止损）。绝不会写入 data.json、日志或任何提交文件。
   PAGES_URL        可选，推送里附带的网页地址（默认 https://stock-6d3.pages.dev）
 """
 import argparse
@@ -909,15 +910,150 @@ def build_prompt(today_bj, movers):
 {SCHEMA_TEXT}"""
 
 
+def _max_output_tokens():
+    try:
+        n = int(os.environ.get("AI_MAX_OUTPUT_TOKENS", "") or 2000)
+    except ValueError:
+        n = 2000
+    return max(256, min(n, 8000))
+
+
+_SECRET_RE = re.compile(r"(?i)\b(bearer\s+|xai-|sk-|api[_-]?key[^=\s]*[=:\s]+|AIza)[A-Za-z0-9_\-.]{6,}")
+
+
+def preview_ai_text(text, n=400):
+    """日志用的短预览：压缩空白、截断，并去掉像密钥的片段。"""
+    raw = "" if text is None else str(text)
+    s = _SECRET_RE.sub(r"\1***", raw)
+    s = re.sub(r"\s+", " ", s).strip()
+    if len(s) > n:
+        s = s[:n] + "…"
+    return f"{len(raw)} 字：{s or '（空）'}"
+
+
+def _normalize_ai_text(text):
+    t = str(text or "").replace("\ufeff", "")
+    t = t.replace("\u200b", "").replace("\u200c", "").replace("\u200d", "")
+    t = t.replace("｛", "{").replace("｝", "}").replace("［", "[").replace("］", "]")
+    return t.strip()
+
+
+def _strip_trailing_commas(s):
+    prev = None
+    while prev != s:
+        prev = s
+        s = re.sub(r",\s*([}\]])", r"\1", s)
+    return s
+
+
+def _fenced_blocks(text):
+    blocks = []
+    for m in re.finditer(r"```(?:json|javascript|js)?\s*\r?\n?(.*?)```", text, flags=re.I | re.S):
+        blocks.append(m.group(1).strip())
+    return blocks
+
+
+def _iter_balanced_json(text):
+    """从文本中按括号匹配抽出完整的 {...} 或 [...]（忽略字符串里的括号）。"""
+    in_str = False
+    esc = False
+    quote = ""
+    start = None
+    depth = 0
+    opener = ""
+    for i, ch in enumerate(text):
+        if in_str:
+            if esc:
+                esc = False
+            elif ch == "\\":
+                esc = True
+            elif ch == quote:
+                in_str = False
+            continue
+        if ch in ('"', "'"):
+            in_str = True
+            quote = ch
+            continue
+        if ch in "{[":
+            if depth == 0:
+                start = i
+                opener = ch
+            depth += 1
+        elif ch in "}]":
+            if depth <= 0:
+                continue
+            depth -= 1
+            if depth == 0 and start is not None:
+                if (opener == "{" and ch == "}") or (opener == "[" and ch == "]"):
+                    yield text[start:i + 1]
+                start = None
+                opener = ""
+
+
+def _load_json_candidate(raw):
+    last_err = None
+    for variant in (raw, _strip_trailing_commas(raw)):
+        try:
+            return json.loads(variant), None
+        except json.JSONDecodeError as e:
+            last_err = e
+    return None, last_err
+
+
 def extract_json(text):
-    if not text:
+    """从模型回复里抽出 JSON：支持 markdown 代码块、前后说明文字、第一个完整对象、多余逗号。"""
+    if text is None or not str(text).strip():
         raise ValueError("AI 没有返回内容")
-    t = text.strip()
-    t = re.sub(r"^```(?:json)?\s*|\s*```$", "", t, flags=re.I)
-    i, j = t.find("{"), t.rfind("}")
-    if i < 0 or j <= i:
+    t = _normalize_ai_text(text)
+    blobs = []
+    for block in _fenced_blocks(t) + [t]:
+        if not block:
+            continue
+        found = list(_iter_balanced_json(block))
+        if found:
+            blobs.extend(found)
+        else:
+            blobs.append(block)
+    seen = set()
+    objects = []
+    last_err = None
+    had_blob = False
+    for raw in blobs:
+        raw = raw.strip()
+        if not raw or raw in seen:
+            continue
+        seen.add(raw)
+        if raw[0] not in "{[":
+            continue
+        had_blob = True
+        obj, err = _load_json_candidate(raw)
+        if err:
+            last_err = err
+            continue
+        if isinstance(obj, list):
+            obj = next((x for x in obj if isinstance(x, dict)), None)
+        if isinstance(obj, dict):
+            objects.append(obj)
+    if objects:
+        def score(o):
+            return sum(1 for k in ("sp500_mover_reasons", "big_news", "opportunity") if k in o)
+        objects.sort(key=score, reverse=True)
+        return objects[0]
+    if not had_blob:
         raise ValueError("AI 返回的内容里找不到 JSON")
-    return json.loads(t[i:j + 1])
+    raise ValueError("AI 返回的 JSON 无法解析" + (f"：{last_err}" if last_err else ""))
+
+
+def build_repair_prompt(raw_text, today_bj, movers):
+    """解析失败时用的短提示：要求只输出 JSON。有原文就改写，没有则带上原任务要点。"""
+    head = ("只输出一个 JSON 对象，不要 markdown 代码块，不要解释或其它文字。"
+            f"没有的内容用空数组或 null。格式：\n{SCHEMA_TEXT}\n")
+    raw = _normalize_ai_text(raw_text)
+    if raw:
+        return head + "请把下面这份回复改写成上述 JSON：\n" + raw[:1500]
+    return head + "请按下面的任务作答：\n" + build_prompt(today_bj, movers)
+
+
 
 
 def _s(v, n=600):
@@ -1128,7 +1264,30 @@ def _attach_reasons(movers, reasons):
     return out
 
 
-def call_gemini(prompt):
+def _gemini_text(resp):
+    """尽量从 Gemini 响应里取出可见正文（跳过 thought）。"""
+    try:
+        text = (resp.text or "").strip()
+        if text:
+            return text
+    except Exception:  # noqa: BLE001
+        pass
+    parts = []
+    try:
+        for c in resp.candidates or []:
+            content = getattr(c, "content", None)
+            for p in getattr(content, "parts", None) or []:
+                if getattr(p, "thought", False):
+                    continue
+                tx = getattr(p, "text", None)
+                if tx:
+                    parts.append(tx)
+    except Exception:  # noqa: BLE001
+        pass
+    return "\n".join(parts).strip()
+
+
+def call_gemini(prompt, use_search=True):
     key = os.environ.get("GEMINI_API_KEY", "").strip()
     if not key:
         raise RuntimeError("没有设置 GEMINI_API_KEY")
@@ -1138,17 +1297,19 @@ def call_gemini(prompt):
     model = os.environ.get("GEMINI_MODEL", "").strip() or "gemini-3.8-flash"
     client = genai.Client(api_key=key)
     # 注意：使用 google_search 工具时，接口不允许同时指定 JSON 响应格式，所以在提示词里要求 JSON，再自行解析和校验。
+    cfg = dict(
+        system_instruction=SYSTEM,
+        temperature=0.2,
+        max_output_tokens=_max_output_tokens(),
+    )
+    if use_search:
+        cfg["tools"] = [types.Tool(google_search=types.GoogleSearch())]
     resp = client.models.generate_content(
         model=model,
         contents=prompt,
-        config=types.GenerateContentConfig(
-            system_instruction=SYSTEM,
-            tools=[types.Tool(google_search=types.GoogleSearch())],
-            temperature=0.2,
-            max_output_tokens=int(os.environ.get("AI_MAX_OUTPUT_TOKENS", "") or 2048),
-        ),
+        config=types.GenerateContentConfig(**cfg),
     )
-    text = resp.text or ""
+    text = _gemini_text(resp)
     sources = []
     try:
         gm = resp.candidates[0].grounding_metadata
@@ -1160,7 +1321,66 @@ def call_gemini(prompt):
     return text, sources, model
 
 
-def call_grok(prompt):
+def _collect_xai_text(j):
+    """从 xAI Responses / Chat Completions 响应里收集助手正文，避开 reasoning 和工具调用。"""
+    if not isinstance(j, dict):
+        return str(j or ""), []
+    sources, messages = [], []
+
+    def add_src(title, url):
+        if url:
+            sources.append({"title": title or "", "url": url})
+
+    def from_parts(parts):
+        if isinstance(parts, str):
+            messages.append(parts)
+            return
+        for part in parts or []:
+            if isinstance(part, str):
+                messages.append(part)
+                continue
+            if not isinstance(part, dict):
+                continue
+            typ = (part.get("type") or "")
+            if typ in ("output_text", "text", "input_text") or (part.get("text") and typ not in ("reasoning", "summary_text")):
+                if part.get("text"):
+                    messages.append(part["text"])
+            for an in part.get("annotations", []) or []:
+                if isinstance(an, dict):
+                    add_src(an.get("title", ""), an.get("url"))
+
+    for item in j.get("output") or []:
+        if not isinstance(item, dict):
+            continue
+        typ = item.get("type") or ""
+        if typ in ("reasoning", "web_search_call", "function_call", "custom_tool_call", "tool_call"):
+            continue
+        if typ in ("output_text", "text") and item.get("text"):
+            messages.append(item["text"])
+        if typ == "message" or item.get("content"):
+            from_parts(item.get("content"))
+    if not messages and isinstance(j.get("output_text"), str) and j["output_text"].strip():
+        messages.append(j["output_text"])
+    ch0 = (j.get("choices") or [None])[0] or {}
+    msg = ch0.get("message") or {}
+    if isinstance(msg.get("content"), str) and msg["content"].strip():
+        messages.append(msg["content"])
+    elif msg.get("content"):
+        from_parts(msg.get("content"))
+    for c in j.get("citations") or []:
+        if isinstance(c, str):
+            add_src("", c)
+        elif isinstance(c, dict):
+            add_src(c.get("title", ""), c.get("url") or c.get("uri"))
+    status = j.get("status") or ""
+    if status and status not in ("completed", "complete", "success"):
+        detail = j.get("incomplete_details") or {}
+        log(f"  xAI 回复状态：{status}" + (f"（{detail}）" if detail else "") + "，可能被截断")
+    text = "\n".join(x for x in messages if x).strip()
+    return text, sources
+
+
+def call_grok(prompt, use_search=True):
     key = os.environ.get("XAI_API_KEY", "").strip()
     if not key:
         raise RuntimeError("没有设置 XAI_API_KEY")
@@ -1170,35 +1390,38 @@ def call_grok(prompt):
     body = {
         "model": model,
         "input": [{"role": "system", "content": SYSTEM}, {"role": "user", "content": prompt}],
-        "tools": [{"type": "web_search"}],
         # 输出很短；上限同时覆盖推理 token，设太小会截断，所以留余量。可用 AI_MAX_OUTPUT_TOKENS 调整
-        "max_output_tokens": int(os.environ.get("AI_MAX_OUTPUT_TOKENS", "") or 2000),
+        "max_output_tokens": _max_output_tokens(),
     }
+    if use_search:
+        body["tools"] = [{"type": "web_search"}]
     r = requests.post(f"{base}/responses", json=body, timeout=400,
                       headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"})
     if r.status_code >= 400:
         raise RuntimeError(f"xAI 接口返回 {r.status_code}：{r.text[:300]}")
-    j = r.json()
-    text, sources = "", []
-    if isinstance(j.get("output_text"), str):
-        text = j["output_text"]
-    for item in j.get("output", []) or []:
-        if item.get("type") == "message":
-            for part in item.get("content", []) or []:
-                if part.get("type") in ("output_text", "text"):
-                    if not text:
-                        text += part.get("text", "")
-                    for an in part.get("annotations", []) or []:
-                        if an.get("url"):
-                            sources.append({"title": an.get("title", ""), "url": an["url"]})
-    for c in j.get("citations", []) or []:
-        if isinstance(c, str):
-            sources.append({"title": "", "url": c})
+    text, sources = _collect_xai_text(r.json())
     return text, sources, model
 
 
+def _finalize_radar(radar, sources):
+    extra = radar.pop("_extracted_urls", []) or []
+    seen, src = set(), []
+    pre = [{"title": "", "url": n["url"]} for n in (radar.get("big_news") or []) if n.get("url")]
+    o = radar.get("opportunity")
+    if o and o.get("url"):
+        pre.append({"title": "", "url": o["url"]})
+    for s in (pre + [{"title": "", "url": u} for u in extra] + list(sources or [])):
+        u = _http_url((s or {}).get("url") if isinstance(s, dict) else s)
+        if not u or u in seen:
+            continue
+        seen.add(u)
+        src.append({"title": (s.get("title") or "") if isinstance(s, dict) else "", "url": u})
+    radar["sources"] = src[:12]
+    return radar
+
+
 def run_ai(cfg, today_bj, movers):
-    """整个脚本只调用一次模型（网络错误时最多再试一次；JSON 格式不对不重试，避免重复花费）。"""
+    """主流程只调用一次模型（网络错误最多再试一次）。若返回无法解析为 JSON，再追加一次很短的「只输出 JSON」修复调用。"""
     provider = (os.environ.get("AI_PROVIDER", "") or "gemini").strip().lower()
     if provider in ("xai", "grok"):
         provider, fn = "grok", call_grok
@@ -1209,7 +1432,7 @@ def run_ai(cfg, today_bj, movers):
                       "error": f"不认识的 AI_PROVIDER：{provider}（只能填 gemini 或 grok）"}
     prompt = build_prompt(today_bj, movers)
     model = (os.environ.get("XAI_MODEL", "").strip() or "grok-4.7") if provider == "grok" else (os.environ.get("GEMINI_MODEL", "").strip() or "gemini-3.8-flash")
-    last = None
+    last, text, sources = None, "", []
     for i in range(2):
         try:
             text, sources, model = fn(prompt)
@@ -1220,27 +1443,28 @@ def run_ai(cfg, today_bj, movers):
                 break
             time.sleep(5)
             continue
+        log(f"  AI 原始回复预览（{preview_ai_text(text)}）")
         try:
             radar = validate_radar(extract_json(text), cfg, movers)
         except Exception as e:  # noqa: BLE001
             last = e
-            log(f"  AI 返回内容解析失败（不再重试）：{e}")
+            log(f"  AI 返回内容解析失败：{e}")
             break
-        extra = radar.pop("_extracted_urls", []) or []
-        seen, src = set(), []
-        pre = [{"title": "", "url": n["url"]} for n in (radar.get("big_news") or []) if n.get("url")]
-        o = radar.get("opportunity")
-        if o and o.get("url"):
-            pre.append({"title": "", "url": o["url"]})
-        for s in (pre + [{"title": "", "url": u} for u in extra] + list(sources or [])):
-            u = _http_url((s or {}).get("url") if isinstance(s, dict) else s)
-            if not u or u in seen:
-                continue
-            seen.add(u)
-            src.append({"title": (s.get("title") or "") if isinstance(s, dict) else "", "url": u})
-        radar["sources"] = src[:12]
-        return radar, {"provider": provider, "model": model, "ok": True, "error": None}
-    return None, {"provider": provider, "model": model, "ok": False, "error": str(last)[:300]}
+        return _finalize_radar(radar, sources), {"provider": provider, "model": model, "ok": True, "error": None}
+    # 解析失败（已拿到回复）或第一次就没抽出 JSON：再试一次短修复提示，值得多花一次调用
+    if last and "没有设置" not in str(last):
+        repair = build_repair_prompt(text, today_bj, movers)
+        log("  尝试一次「只输出 JSON」修复调用…")
+        try:
+            # 已有正文时不再联网，只让模型把原文改写成 JSON，省 token
+            rtext, rsrc, model = fn(repair, use_search=not bool((text or "").strip()))
+            log(f"  修复调用回复预览（{preview_ai_text(rtext)}）")
+            radar = validate_radar(extract_json(rtext), cfg, movers)
+            return _finalize_radar(radar, list(sources or []) + list(rsrc or [])), {"provider": provider, "model": model, "ok": True, "error": None}
+        except Exception as e:  # noqa: BLE001
+            last = e
+            log(f"  修复调用仍未成功：{e}")
+    return None, {"provider": provider, "model": model, "ok": False, "error": str(last)[:300] if last else "AI 调用失败"}
 
 
 def local_market_summary(indices):
@@ -1253,41 +1477,402 @@ def local_market_summary(indices):
 
 
 # ------------------------------------------------------------------ Server酱
-def build_push_text(data, ai_ok):
-    """微信推送的简短中文摘要：新触及买点、自动替换、涨跌榜、大新闻标题、网页链接。不含任何持仓或金额。"""
+def _md(s, n=60):
+    """放进 Markdown 表格/行内的文本：去掉换行和竖线，截断。"""
+    s = re.sub(r"\s+", " ", str(s or "")).replace("|", "／").strip()
+    return s[:n]
+
+
+def _fpx(v):
+    if v is None:
+        return "—"
+    try:
+        v = float(v)
+    except (TypeError, ValueError):
+        return "—"
+    return f"{v:,.2f}" if abs(v) >= 1 else f"{v:.4f}".rstrip("0").rstrip(".")
+
+
+def _fpct(v, d=1):
+    try:
+        return f"{float(v):+.{d}f}%"
+    except (TypeError, ValueError):
+        return "—"
+
+
+def _px_cell(r):
+    px = r.get("price")
+    if px is None:
+        return "无报价"
+    lab = r.get("price_label") or "收盘"
+    return f"${_fpx(px)} {lab}" + ("·旧" if r.get("stale") else "")
+
+
+def _fusd(v, signed=False):
+    try:
+        v = float(v)
+    except (TypeError, ValueError):
+        return "—"
+    if signed:
+        return f"${v:+,.2f}"
+    return f"${v:,.2f}"
+
+
+def _lookup_quote(data, symbol):
+    s = _canon(symbol)
+    prices = (data or {}).get("prices") or {}
+    plan = (data or {}).get("plan") or {}
+    for key in (s, s.replace(".", "-"), s.replace("-", "."), symbol):
+        rec = prices.get(key)
+        if isinstance(rec, dict) and rec.get("price") is not None:
+            return rec
+    for r in list(plan.get("buy_table") or []) + list(plan.get("retired_table") or []) + list(plan.get("dca") or []):
+        if isinstance(r, dict) and _canon(r.get("symbol")) == s and r.get("price") is not None:
+            return r
+    return None
+
+
+def _plan_row_for(data, symbol):
+    s = _canon(symbol)
+    plan = (data or {}).get("plan") or {}
+    for r in list(plan.get("buy_table") or []) + list(plan.get("retired_table") or []):
+        if isinstance(r, dict) and _canon(r.get("symbol")) == s:
+            return r
+    return None
+
+
+def _is_levered_sym(sym, data=None):
+    s = _canon(sym)
+    if LEVERED_RE.match(s):
+        return True
+    r = _plan_row_for(data, s) if data is not None else None
+    return bool(r and r.get("kind") == "levered")
+
+
+def _pos_num(v, positive=False):
+    if v is None or v == "":
+        return None
+    try:
+        n = float(v)
+    except (TypeError, ValueError):
+        return None
+    if n != n:
+        return None
+    if positive and n <= 0:
+        return None
+    return n
+
+
+def load_holdings_for_push():
+    """只从环境变量读取，供推送使用。解析失败只打一句不含内容的日志，绝不打印原文。"""
+    raw = os.environ.get("HOLDINGS_JSON")
+    if raw is None or not str(raw).strip():
+        return None
+    try:
+        obj = json.loads(str(raw).strip().lstrip("\ufeff"))
+    except Exception:  # noqa: BLE001
+        log("HOLDINGS_JSON 无法解析，本次推送不含持有仓。")
+        return None
+    if not isinstance(obj, dict):
+        log("HOLDINGS_JSON 格式无效，本次推送不含持有仓。")
+        return None
+    src = obj.get("positions") or obj.get("hold") or obj.get("holdings")
+    if src is None:
+        src = []
+    if not isinstance(src, list):
+        log("HOLDINGS_JSON 格式无效，本次推送不含持有仓。")
+        return None
+    positions = []
+    for it in src[:40]:
+        if not isinstance(it, dict):
+            continue
+        sym = _canon(it.get("symbol") or it.get("ticker") or it.get("code") or "")
+        if not sym:
+            key = str(it.get("key") or "")
+            if ":" in key:
+                sym = _canon(key.split(":", 1)[-1])
+        qty = _pos_num(it.get("qty") if it.get("qty") is not None else it.get("quantity") or it.get("shares"), True)
+        if not sym or not qty:
+            continue
+        cost = _pos_num(it.get("cost") if it.get("cost") is not None else it.get("avg") or it.get("costPrice"))
+        if cost is None:
+            cost = 0.0
+        acc = it.get("account") or it.get("acct") or ""
+        if acc not in ("ZA", "盈立"):
+            acc = "ZA" if sym in ("QQQM", "SCHD") else "盈立"
+        sl = _pos_num(it.get("sl") if it.get("sl") is not None else it.get("stop") or it.get("stop_loss"), True)
+        tp = _pos_num(it.get("tp") if it.get("tp") is not None else it.get("take") or it.get("take_profit"), True)
+        positions.append({"symbol": sym, "qty": qty, "cost": cost, "account": acc, "sl": sl, "tp": tp,
+                          "name": str(it.get("name") or "")[:40]})
+    capital = _pos_num(obj.get("capital") if obj.get("capital") is not None else obj.get("capitalUsd") or obj.get("capital_usd"))
+    if capital is None or capital <= 0:
+        capital = 1500.0
+    cash = _pos_num(obj.get("cash"))
+    if cash is None:
+        cash = capital - sum(p["qty"] * p["cost"] for p in positions)
+    log("已读取持仓供推送使用。" if positions else "HOLDINGS_JSON 里没有有效持仓，本次推送不含持有仓。")
+    if not positions:
+        return None
+    return {"capital": capital, "cash": cash, "positions": positions}
+
+
+def _sltp_for_position(pos, data):
+    row = _plan_row_for(data, pos["symbol"]) or {}
+    sl, tp, src = pos.get("sl"), pos.get("tp"), "我的"
+    if not sl and row.get("ref_sl"):
+        sl, src = row["ref_sl"], "技术参考"
+    if not tp and row.get("ref_tp"):
+        tp = row["ref_tp"]
+        if src != "我的" or not pos.get("sl"):
+            src = "技术参考" if not pos.get("sl") and not pos.get("tp") else src
+    # 若只覆盖了其中一侧，另一侧仍可用技术参考，来源写成「我的+参考」
+    used_mine = bool(pos.get("sl") or pos.get("tp"))
+    used_ref = (not pos.get("sl") and row.get("ref_sl")) or (not pos.get("tp") and row.get("ref_tp"))
+    if used_mine and used_ref:
+        src = "我的/参考"
+    elif used_mine:
+        src = "我的"
+    else:
+        src = "AI 参考" if row.get("sl_tp_source") == "ai" else "技术参考"
+    return sl, tp, src
+
+
+def _build_holdings_push(data, holdings):
+    """持有仓 Markdown。holdings 已规范化；价格来自本次行情，不回写任何文件。"""
+    if not holdings or not holdings.get("positions"):
+        return "", [], []
+    plan = data.get("plan") or {}
+    hit_alerts = []
+    held_syms = []
+    accounts = {}
+    for pos in holdings["positions"]:
+        rec = _lookup_quote(data, pos["symbol"]) or {}
+        row = _plan_row_for(data, pos["symbol"]) or {}
+        px = rec.get("price") if rec.get("price") is not None else row.get("price")
+        prev = rec.get("prev_close") if rec.get("prev_close") is not None else row.get("prev_close")
+        pct = rec.get("change_pct") if rec.get("change_pct") is not None else row.get("change_pct")
+        qty, cost = pos["qty"], pos["cost"]
+        mv = pl = day = plp = None
+        if px is not None:
+            mv = qty * float(px)
+            pl = mv - qty * cost
+            plp = (float(px) / cost - 1) * 100 if cost > 0 else None
+            if prev is not None:
+                day = qty * (float(px) - float(prev))
+            elif pct is not None:
+                day = mv - mv / (1 + float(pct) / 100.0)
+        sl, tp, src = _sltp_for_position(pos, data)
+        marks = []
+        dist = []
+        if sl:
+            if px is not None and float(px) <= float(sl) + 1e-9:
+                marks.append("🚨已触及止损")
+                hit_alerts.append(f"**{pos['symbol']}** 现价 {_fusd(px)}，已触及{src}止损 {_fusd(sl)}。请整笔卖出，不要拆单。")
+                dist.append(f"🚨止损 {_fpx(sl)}（{src}）已触及")
+            elif px is not None:
+                dist.append(f"止损 {_fpx(sl)}（{src}）还差 {_fusd(float(px)-float(sl))}（{_fpct((float(px)/float(sl)-1)*100)}）")
+            else:
+                dist.append(f"止损 {_fpx(sl)}（{src}）")
+        if tp:
+            if px is not None and float(px) >= float(tp) - 1e-9:
+                marks.append("🚨已触及止盈")
+                hit_alerts.append(f"**{pos['symbol']}** 现价 {_fusd(px)}，已触及{src}止盈 {_fusd(tp)}。请整笔卖出，不要拆单。")
+                dist.append(f"🚨止盈 {_fpx(tp)}（{src}）已触及")
+            elif px is not None:
+                dist.append(f"止盈 {_fpx(tp)}（{src}）还差 {_fusd(float(tp)-float(px))}（{_fpct((float(tp)/float(px)-1)*100)}）")
+            else:
+                dist.append(f"止盈 {_fpx(tp)}（{src}）")
+        if not dist:
+            dist.append("尚未设置止盈止损，也没有技术参考")
+        acc = pos["account"]
+        accounts.setdefault(acc, {"rows": [], "mv": 0.0, "cost": 0.0, "day": 0.0, "pl": 0.0})
+        lab = rec.get("price_label") or row.get("price_label") or "收盘"
+        accounts[acc]["rows"].append({
+            "symbol": pos["symbol"], "qty": qty, "cost": cost, "px": px, "lab": lab, "pct": pct,
+            "day": day, "pl": pl, "plp": plp, "dist": "；".join(dist), "marks": marks,
+        })
+        if mv is not None:
+            accounts[acc]["mv"] += mv
+            accounts[acc]["pl"] += pl if pl is not None else 0
+        accounts[acc]["cost"] += qty * cost
+        if day is not None:
+            accounts[acc]["day"] += day
+        held_syms.append(pos["symbol"])
+    lines = ["### 💼 持有仓"]
+    if hit_alerts:
+        lines += ["", "🚨 **卖出提醒**"] + [f"- {a}" for a in hit_alerts] + [""]
+    lines += ["", "| 账户 | 标的 | 数量 | 成本 | 现价 | 今日盈亏 | 累计盈亏 | 止损/止盈 |", "|---|---|---|---|---|---|---|---|"]
+    for acc in [a for a in ("ZA", "盈立") if a in accounts] + [a for a in accounts if a not in ("ZA", "盈立")]:
+        b = accounts[acc]
+        for r in b["rows"]:
+            mk = (" " + " ".join(r["marks"])) if r["marks"] else ""
+            qty_s = f"{r['qty']:.4f}".rstrip("0").rstrip(".")
+            lines.append(
+                f"| {acc} | **{_md(r['symbol'], 10)}**{mk} | {qty_s} | {_fusd(r['cost'])} | "
+                f"{(_fusd(r['px'])+' '+_md(r['lab'],4)+' '+_fpct(r['pct'])) if r['px'] is not None else '无报价'} | "
+                f"{_fusd(r['day'], True)} | {_fusd(r['pl'], True)}" + (f"（{_fpct(r['plp'])}）" if r["plp"] is not None else "") +
+                f" | {_md(r['dist'], 80)} |"
+            )
+        lines.append(f"| {acc} 小计 |  |  | {_fusd(b['cost'])} | 市值 {_fusd(b['mv'])} | {_fusd(b['day'], True)} | {_fusd(b['pl'], True)} |  |")
+    total_mv = sum(b["mv"] for b in accounts.values())
+    total_day = sum(b["day"] for b in accounts.values())
+    total_pl = sum(b["pl"] for b in accounts.values())
+    capital = holdings["capital"]
+    cash = holdings["cash"]
+    assets = total_mv + (cash if cash is not None else 0)
+    vs = assets - capital if capital else None
+    vsp = (assets / capital - 1) * 100 if capital else None
+    lines += ["", f"**合计**（起点 {_fusd(capital)}）：总资产 {_fusd(assets)}（持仓市值 {_fusd(total_mv)} + 现金 {_fusd(cash)}），相对起点 {_fusd(vs, True)}（{_fpct(vsp)}），今日 {_fusd(total_day, True)}。"]
+    held_lev = [s for s in held_syms if _is_levered_sym(s, data)]
+    return "\n".join(lines), held_syms, held_lev
+
+
+def build_push_text(data, ai_ok, holdings=None):
+    """微信推送（Server酱，Markdown）：持有仓（仅当提供 HOLDINGS_JSON）、观察仓买点与技术止盈止损、杠杆只拿一只、定投、涨跌榜、大新闻、自动换股、网页链接。
+    持仓只来自环境变量，不会写入 data.json。未提供或无效则跳过持有仓。"""
     plan = data.get("plan") or {}
     today = (data.get("updated_at_beijing") or "")[:10]
-    lines = []
+    if holdings is None:
+        holdings = load_holdings_for_push()
+    held_sec, held_syms, held_lev = _build_holdings_push(data, holdings)
+    held_set = {_canon(s) for s in (held_syms or [])}
+    held_lev_set = {_canon(s) for s in (held_lev or [])}
+    out = []
     ms = ((data.get("radar") or {}).get("market_summary") or {}).get("headline")
-    if ms:
-        lines.append("美股收盘：" + ms)
-    touched = []
-    for r in plan.get("buy_table") or []:
-        if r.get("watch_only") or not r.get("newly_touched"):
-            continue
-        touched.append(f"{r['symbol']} " + "/".join(str(x) for x in r["newly_touched"]))
-    if touched:
-        lines.append("🔔 新触及买点：" + "；".join(touched))
-    reached = [s for s in ((plan.get("levered") or {}).get("reached_buy") or [])]
-    if len(reached) > 1:
-        lines.append("三只杠杆 ETF 只买一只，已到买点：" + "、".join(reached))
-    swaps = [e for e in plan.get("swap_log") or [] if e.get("date") == today]
-    if swaps:
-        lines.append("🔁 已自动替换：" + "；".join(f"{e['out']}→{e['in']}（{(e.get('reason') or '')[:30]}）" for e in swaps))
+    out.append(f"**美股收盘**（北京时间 {data.get('updated_at_beijing') or ''} 更新）" + (f"\n{_md(ms, 90)}" if ms else ""))
+    if held_sec:
+        out.append(held_sec)
+
+    rows = [r for r in (plan.get("buy_table") or []) if isinstance(r, dict) and r.get("symbol")]
+    live = sorted([r for r in rows if not r.get("watch_only")],
+                  key=lambda r: (r.get("sort_gap_pct") is None, r.get("sort_gap_pct") if r.get("sort_gap_pct") is not None else 0))
+    ordered = live + [r for r in rows if r.get("watch_only")]
+    if ordered:
+        lines = ["### 👀 观察仓（按买点缺口排序）", "", "| 标的 | 现价 | 日涨跌 | 最近买点 | 缺口 | 止损/止盈参考 |", "|---|---|---|---|---|---|"]
+        for r in ordered:
+            s = _canon(r.get("symbol"))
+            observe_only = bool(r.get("kind") == "levered" and held_lev_set and s not in held_lev_set)
+            mark = ""
+            if s in held_set:
+                mark += " 已持有"
+            if r.get("watch_only"):
+                mark += " 👀只看不买"
+            elif observe_only:
+                mark += " 只观察"
+            elif r.get("newly_touched"):
+                mark += " 🔔新触及" + "/".join(_fpx(x) for x in r["newly_touched"])
+            elif r.get("at_buy"):
+                mark += " ⚠️已到买点"
+            if r.get("swapped_in"):
+                mark += " 🆕换入"
+            sltp = ""
+            if r.get("ref_sl") or r.get("ref_tp"):
+                src = "AI" if r.get("sl_tp_source") == "ai" else "技术参考"
+                sltp = f"止损 {_fpx(r.get('ref_sl'))} / 止盈 {_fpx(r.get('ref_tp'))}（{src}）"
+            gp = r.get("gap_pct")
+            if r.get("watch_only") or observe_only:
+                gap = "不提示"
+            elif gp is None:
+                gap = "—"
+            elif gp <= 0:
+                gap = f"已到（{_fpct(gp)}）"
+            else:
+                gap = f"还差 {_fpct(gp)}"
+            lines.append(f"| **{_md(r['symbol'], 10)}**{mark} | {_px_cell(r)} | {_fpct(r.get('change_pct'))} | {_fpx(r.get('nearest_level'))} | {gap} | {sltp or '—'} |")
+        notes = []
+        for r in ordered:
+            if r.get("kind") == "nvda" and r.get("watch_only"):
+                notes.append(f"NVDA：{NVDA_EARNINGS} 财报前只看不买，财报后再按买点梯子提醒。")
+            if r.get("kind") == "brk":
+                notes.append(f"BRK.B：{BRK_DECIDE_BY} 前决定要不要买（已买入请忽略，网页里标记后会隐藏）。")
+            if r.get("symbol") == "ADBE" and today and today <= ADBE_EARNINGS_BJ:
+                notes.append(f"ADBE：财报约北京时间 {ADBE_EARNINGS_BJ} 早上。")
+        if notes:
+            lines += [""] + [f"- {n}" for n in notes]
+        if any(r.get("ref_sl") or r.get("ref_tp") for r in ordered):
+            lines.append("\n止盈止损为参考（持有仓优先用你在密钥里填的价格），不是下单指令。已持有的杠杆 ETF 和 NVDA 触及卖点时，整笔卖出，不要拆单。")
+        out.append("\n".join(lines))
+
+    lev = plan.get("levered") or {}
+    lev_syms = [s for s in (lev.get("symbols") or []) if any(_canon(r.get("symbol")) == _canon(s) for r in ordered)]
+    if not lev_syms:
+        lev_syms = [_canon(r.get("symbol")) for r in ordered if r.get("kind") == "levered"]
+    if lev_syms:
+        txt = f"### ♟️ 杠杆 ETF（{'、'.join(lev_syms)}）\n同一时间只拿一只，买了之后另外几只只观察。"
+        if held_lev:
+            others = [s for s in lev_syms if _canon(s) not in held_lev_set]
+            txt += f"\n当前持有：**{'、'.join(held_lev)}**" + (f"，{_md('、'.join(others), 40)} 只观察、不提示买入。" if others else "。")
+        else:
+            reached = [s for s in (lev.get("reached_buy") or []) if _canon(s) in {_canon(x) for x in lev_syms}]
+            if reached:
+                txt += f"\n当前已到买点：**{'、'.join(reached)}**" + ("，请只选一只。" if len(reached) > 1 else "。")
+        out.append(txt)
+
+    dca = [r for r in (plan.get("dca") or []) if isinstance(r, dict) and r.get("symbol")]
+    if dca:
+        cells = "｜".join(f"{_md(r['symbol'], 8)} {('$' + _fpx(r.get('price'))) if r.get('price') is not None else '—'} {_fpct(r.get('change_pct'))}" for r in dca)
+        out.append(f"### 📌 定投\n{cells}\n每批执行完请取消定投，{DCA_DEADLINE[:4]} 年底前做完。")
+
     mv = plan.get("sp500_movers") or {}
-    def fm(arr):
-        return "、".join(f"{x['ticker']} {x['change_pct']:+.1f}%" for x in arr or [])
-    if mv.get("gainers") or mv.get("losers"):
-        lines.append(f"标普500 涨：{fm(mv.get('gainers'))}｜跌：{fm(mv.get('losers'))}")
-    news = plan.get("big_news") or []
-    if news and not plan.get("ai_stale"):
-        lines.append("📰 大新闻：" + "；".join(n.get("summary", "")[:40] for n in news[:3] if n.get("summary")))
-    if not ai_ok:
-        lines.append("（今日 AI 未更新，涨跌原因/新闻沿用上次）")
+    mv_lines = []
+    for tag, key in (("📈 涨", "gainers"), ("📉 跌", "losers")):
+        for x in (mv.get(key) or []):
+            reason = _real_reason(x.get("reason"))
+            nm = _md(x.get("name"), 14)
+            mv_lines.append(f"- {tag} **{_md(x.get('ticker'), 8)}** {_fpct(x.get('change_pct'))}" + (f" {nm}" if nm else "") + (f"：{_md(reason, 50)}" if reason else ""))
+    if mv_lines:
+        sd = mv.get("session_date")
+        out.append(f"### 📊 标普 500 涨跌前 3{f'（{sd}）' if sd else ''}\n" + "\n".join(mv_lines))
+
+    news = [n for n in (plan.get("big_news") or []) if isinstance(n, dict) and n.get("summary")][:3]
+    if news:
+        nl = []
+        for n in news:
+            title = _md(n["summary"], 70)
+            url = _http_url(n.get("url"))
+            nl.append(f"- [{title}]({url})" if url else f"- {title}")
+        head = "### 🗞️ 大新闻" + ("（AI 今日未更新，沿用上次）" if (plan.get("ai_stale") or not ai_ok) else "")
+        out.append(head + "\n" + "\n".join(nl))
+    elif not ai_ok:
+        out.append("（今日 AI 未更新：涨跌原因和大新闻暂无。）")
+
+    swaps = [e for e in (plan.get("swap_log") or []) if e.get("date") == today]
+    if swaps:
+        sl = [f"- {_md(e.get('out'), 8)} → **{_md(e.get('in'), 8)}** {_md(e.get('in_name'), 20)}" + (f"：{_md(e.get('reason'), 50)}" if e.get("reason") else "") for e in swaps]
+        out.append("### 🔁 今日自动换股\n" + "\n".join(sl))
+
     url = os.environ.get("PAGES_URL", "").strip() or DEFAULT_PAGES_URL
-    lines.append("详情：" + url)
-    lines.append(PLAN_DISCLAIMER)
-    return "\n\n".join(lines)
+    out.append(f"[打开完整雷达页]({url})\n\n{PLAN_DISCLAIMER}")
+    text = "\n\n".join(out)
+    return text[:30000]
+
+
+def push_title(data, holdings=None):
+    """标题（Server酱限 32 字）：日期 + 新触及买点或卖点提醒（不含金额）。"""
+    plan = data.get("plan") or {}
+    d = (data.get("updated_at_beijing") or "")[5:10]
+    title = f"每日雷达 {d}"
+    if holdings is None:
+        holdings = load_holdings_for_push()
+    sell = []
+    if holdings:
+        for pos in holdings.get("positions") or []:
+            rec = _lookup_quote(data, pos["symbol"]) or _plan_row_for(data, pos["symbol"]) or {}
+            px = rec.get("price")
+            sl, tp, _src = _sltp_for_position(pos, data)
+            if px is None:
+                continue
+            if sl and float(px) <= float(sl) + 1e-9:
+                sell.append(pos["symbol"])
+            elif tp and float(px) >= float(tp) - 1e-9:
+                sell.append(pos["symbol"])
+    if sell:
+        title += " 🚨" + "、".join(sell[:3])
+    else:
+        hit = [r["symbol"] for r in (plan.get("buy_table") or []) if r.get("newly_touched") and not r.get("watch_only")]
+        if hit:
+            title += " 🔔" + "、".join(hit[:3])
+    return title[:32]
 
 
 def push_serverchan(data, radar_ok):
@@ -1297,9 +1882,10 @@ def push_serverchan(data, radar_ok):
         log("未设置 SERVERCHAN_KEY，跳过微信推送。")
         return
     try:
-        title = f"每日雷达 {(data.get('updated_at_beijing') or '')[:10]}"
+        # 持仓只在这里读入推送正文，绝不写入 data 或日志
+        holdings = load_holdings_for_push()
         r = requests.post(f"https://sctapi.ftqq.com/{key}.send",
-                          data={"title": title[:32], "desp": build_push_text(data, radar_ok)}, timeout=15)
+                          data={"title": push_title(data, holdings), "desp": build_push_text(data, radar_ok, holdings)}, timeout=15)
         log(f"Server酱推送：HTTP {r.status_code}")
     except Exception as e:  # noqa: BLE001
         log(f"Server酱推送未成功（已忽略）：{str(e)[:80]}")
