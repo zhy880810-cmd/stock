@@ -36,6 +36,7 @@ jobs:
           XAI_API_KEY: ${{ secrets.XAI_API_KEY }}
           XAI_MODEL: ${{ secrets.XAI_MODEL || vars.XAI_MODEL }}
           SERVERCHAN_KEY: ${{ secrets.SERVERCHAN_KEY }}
+          HOLDINGS_JSON: ${{ secrets.HOLDINGS_JSON }}
           PAGES_URL: ${{ vars.PAGES_URL || 'https://stock-6d3.pages.dev' }}
         run: python scripts/update_daily.py
 
