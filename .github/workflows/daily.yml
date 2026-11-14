@@ -2,8 +2,8 @@ name: 每日雷达
 
 on:
   schedule:
-    # UTC 01:05 = 北京时间 09:05，周二到周六（对应美股周一到周五的收盘后）
-    - cron: "5 1 * * 2-6"
+    # UTC 00:50 = 北京时间 08:50，周二到周六（对应美股周一到周五的收盘后；用户希望约 9:00，通常 8:50 左右）
+    - cron: "50 0 * * 2-6"
   workflow_dispatch: {}   # 允许在 Actions 页面手动点“Run workflow”
 
 permissions:
