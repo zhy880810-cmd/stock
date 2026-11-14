@@ -150,6 +150,9 @@ nav.tabs button .cnt{position:absolute;top:4px;left:calc(50% + 6px);background:v
 .badge.buy{background:rgba(245,158,11,.22);color:#b45309;font-weight:700}
 :root[data-theme=dark] .badge.buy{color:var(--warn)}
 .badge.watch{background:var(--soft);color:var(--sub)}
+.badge.watch-only{background:rgba(220,38,38,.22);color:var(--danger);font-weight:700;font-size:12px;padding:2px 7px}
+.buy-card.watch-only{border-color:var(--danger);background:rgba(220,38,38,.12)}
+.buy-card.watch-only .gapline{color:var(--danger);font-weight:700}
 .badge.ref{background:rgba(37,99,235,.12);color:var(--accent)}
 .buy-card{border:1px solid var(--line);border-radius:12px;padding:10px;margin:8px 0;background:var(--bg)}
 .buy-card.hit{border-color:var(--warn);background:rgba(245,158,11,.1)}
@@ -176,6 +179,19 @@ details.fold > summary::before{content:"▸";color:var(--sub);width:1em;flex:non
 details.fold[open] > summary::before{content:"▾"}
 details.fold > .card,details.fold > .card.rd{box-shadow:none;border:0;margin:0;padding:8px 0 0;background:transparent}
 details.fold > .card > h2:first-child{display:none}
+details.fold.buy-fold > summary{font-size:16px}
+details.fold.buy-fold:not([open]) > summary::after{content:"点此展开整表";margin-left:auto;font-weight:500;font-size:12px;color:var(--accent)}
+details.fold.buy-fold[open] > summary::after{content:"点此收起";margin-left:auto;font-weight:400;font-size:12px;color:var(--sub)}
+#tab-radar.layout-edit details.fold.buy-fold > summary::after{content:none!important}
+#radarMods{min-height:8px}
+.mod-handle{display:none;width:40px;height:40px;min-width:40px;min-height:40px;padding:0;border:0;background:var(--soft);border-radius:10px;cursor:grab;touch-action:none;flex:none;align-items:center;justify-content:center;font-size:18px;color:var(--sub);line-height:1;user-select:none;-webkit-user-select:none}
+.mod-handle:active{cursor:grabbing}
+.mod-vis{display:none;margin-left:auto;flex:none}
+#tab-radar.layout-edit .mod-handle{display:inline-flex}
+#tab-radar.layout-edit .mod-vis{display:inline-flex}
+#tab-radar.layout-edit .rd-mod > summary{user-select:none;-webkit-user-select:none}
+#tab-radar.layout-edit .rd-mod.is-hidden{opacity:.58;border-style:dashed}
+.rd-mod.dragging{opacity:.92;box-shadow:0 8px 24px rgba(0,0,0,.18);position:relative;z-index:8}
 details.mini{margin-top:6px;border-top:1px dashed var(--line);padding-top:4px}
 details.mini > summary{list-style:none;cursor:pointer;color:var(--sub);font-size:13px;min-height:36px;display:flex;align-items:center}
 details.mini > summary::-webkit-details-marker{display:none}
@@ -938,9 +954,6 @@ function markBought(sym, yes){
   return true;
 }
 function isFullPosition(){
-  const p = ensurePlan();
-  if(p.fullPos===true) return true;
-  if(p.fullPos===false) return false;
   try{
     const plan = computePlan();
     if(Number.isFinite(plan.capital) && plan.capital>0 && Number.isFinite(plan.costAll) && plan.costAll>=plan.capital-1e-6) return true;
@@ -1164,28 +1177,169 @@ function clearLocalStrategy(){
 }
 
 const RADAR_FOLD_KEY = 'invest-radar-folds-v1';
+const RADAR_LAYOUT_KEY = 'invest-radar-layout-v1';
+const RADAR_MOD_IDS = ['holdings','news','buys','lev','sltp','dca','movers','swaps','funds','alerts','overnight','cloudWatch','moreNews'];
+let radarLayoutEdit = false;
+let radarJustDragged = false;
 function radarFolds(){
   try{ return JSON.parse(sessionStorage.getItem(RADAR_FOLD_KEY)||'{}')||{}; }catch(_){ return {}; }
 }
 function radarFoldOn(id){ return !!radarFolds()[id]; }
-function setRadarFold(id, on){
-  try{ const o=radarFolds(); if(on) o[id]=1; else delete o[id]; sessionStorage.setItem(RADAR_FOLD_KEY, JSON.stringify(o)); }catch(_){}
+function radarFoldOpen(id, defaultOpen){
+  const o = radarFolds();
+  if(o[id]===1) return true;
+  if(o[id]===0) return false;
+  return !!defaultOpen;
 }
-function foldBox(id, title, html, hint){
+function setRadarFold(id, on){
+  try{ const o=radarFolds(); o[id]=on?1:0; sessionStorage.setItem(RADAR_FOLD_KEY, JSON.stringify(o)); }catch(_){}
+}
+function defaultRadarLayout(){ return { order: RADAR_MOD_IDS.slice(), hidden: [] }; }
+function loadRadarLayout(){
+  try{
+    const raw = JSON.parse(localStorage.getItem(RADAR_LAYOUT_KEY)||'null');
+    const base = defaultRadarLayout();
+    if(!raw || !Array.isArray(raw.order)) return base;
+    const seen = new Set();
+    const order = [];
+    raw.order.forEach(id => { if(RADAR_MOD_IDS.includes(id) && !seen.has(id)){ order.push(id); seen.add(id); } });
+    RADAR_MOD_IDS.forEach(id => {
+      if(seen.has(id)) return;
+      const idx = RADAR_MOD_IDS.indexOf(id);
+      let placed = false;
+      for(let i=idx-1;i>=0;i--){
+        const at = order.indexOf(RADAR_MOD_IDS[i]);
+        if(at>=0){ order.splice(at+1, 0, id); placed = true; break; }
+      }
+      if(!placed) order.unshift(id);
+      seen.add(id);
+    });
+    const hidden = (raw.hidden||[]).filter(id => RADAR_MOD_IDS.includes(id));
+    return { order, hidden };
+  }catch(_){ return defaultRadarLayout(); }
+}
+function saveRadarLayout(lay){
+  try{ localStorage.setItem(RADAR_LAYOUT_KEY, JSON.stringify({ order:lay.order, hidden:lay.hidden||[] })); }catch(_){}
+}
+function isRadarModHidden(id){ return (loadRadarLayout().hidden||[]).indexOf(id)>=0; }
+function foldBox(id, title, html, hint, extraCls, opts){
+  opts = opts || {};
   const body = String(html||'').trim();
-  if(!body) return '';
-  return `<details class="fold card rd" data-fold="${esc(id)}"${radarFoldOn(id)?' open':''}><summary>${title}${hint?`<span class="sub">${hint}</span>`:''}</summary>${body}</details>`;
+  const empty = !body;
+  if(empty && !opts.allowEmpty && !radarLayoutEdit) return '';
+  const hidden = isRadarModHidden(id);
+  if(hidden && !radarLayoutEdit) return '';
+  const open = radarFoldOpen(id, !!opts.defaultOpen) && !hidden;
+  const hideBtn = hidden
+    ? `<button type="button" class="sm mod-vis" data-act="modShow" data-mod="${esc(id)}">显示</button>`
+    : `<button type="button" class="sm mod-vis" data-act="modHide" data-mod="${esc(id)}">隐藏</button>`;
+  return `<details class="fold card rd rd-mod${extraCls?(' '+extraCls):''}${empty?' is-empty':''}${hidden?' is-hidden':''}" data-fold="${esc(id)}" data-mod="${esc(id)}"${open?' open':''}><summary><span class="mod-handle" role="button" tabindex="0" aria-label="拖动排序" title="拖动排序">☰</span><span class="mod-title">${title}</span>${hint?`<span class="sub mod-hint">${hint}</span>`:''}${opts.actions||''}${hideBtn}</summary>${empty?'<div class="sub">暂无内容</div>':body}</details>`;
+}
+function buyPlanFoldHint(){
+  const rows = visibleBuyRows();
+  if(!rows.length) return '暂无';
+  let nNew=0, nBuy=0, nHit=0, nWatch=0;
+  rows.forEach(r => {
+    const s = canonPlanSym(r.symbol);
+    if((r.newly_touched||[]).length) nNew++;
+    if(r.watch_only) nWatch++;
+    if(!r.watch_only && !r._observeOnly && !r._bought && !r._retiredHeld && (r.at_buy || (r.touched_now||[]).length)) nBuy++;
+    const hit = sltpTouched(s, r, r._bought && (!isLev(s) || boughtLevered()===s));
+    if(hit.sl || hit.tp) nHit++;
+  });
+  let h = esc(rows.length+' 只');
+  if(nWatch) h += ` <span class="badge watch-only">只看不买 ${nWatch}</span>`;
+  if(nNew) h += ` <span class="badge new">新触及 ${nNew}</span>`;
+  if(nBuy) h += ` <span class="badge buy">买点 ${nBuy}</span>`;
+  if(nHit) h += ` <span class="badge new">止盈止损 ${nHit}</span>`;
+  return h;
 }
 function bindRadarFolds(root){
   (root||document).querySelectorAll('details[data-fold]').forEach(d => {
     if(d._foldBound) return;
     d._foldBound = true;
+    const sum = d.querySelector('summary');
+    if(sum){
+      sum.addEventListener('click', e => {
+        if(radarJustDragged){ e.preventDefault(); return; }
+        if(e.target.closest('button, a, .mod-handle, input, select, label')) e.preventDefault();
+      });
+    }
     d.addEventListener('toggle', () => {
-      setRadarFold(d.dataset.fold, d.open);
+      if(d.dataset.fold) setRadarFold(d.dataset.fold, d.open);
       if(d.open && typeof paintPlanChart==='function' && d.querySelector('#planChart')){
         requestAnimationFrame(() => { paintPlanChart(); bindPlanChartEvents(); renderChartDetail(); });
       }
     });
+  });
+}
+function persistRadarModOrder(list){
+  if(!list) return;
+  const order = [...list.querySelectorAll(':scope > [data-mod]')].map(el => el.dataset.mod).filter(Boolean);
+  if(!order.length) return;
+  const lay = loadRadarLayout();
+  const rest = lay.order.filter(id => !order.includes(id));
+  lay.order = order.concat(rest);
+  saveRadarLayout(lay);
+}
+function startRadarDrag(list, item, ev){
+  if(!list || !item) return;
+  const pid = ev.pointerId;
+  radarJustDragged = true;
+  item.classList.add('dragging');
+  try{ item.setPointerCapture(pid); }catch(_){}
+  const onMove = e => {
+    if(e.pointerId!==pid) return;
+    e.preventDefault();
+    const y = e.clientY;
+    const kids = [...list.querySelectorAll(':scope > [data-mod]')].filter(el => el!==item);
+    let placed = false;
+    for(const s of kids){
+      const r = s.getBoundingClientRect();
+      if(y < r.top + r.height/2){ list.insertBefore(item, s); placed = true; break; }
+    }
+    if(!placed) list.appendChild(item);
+  };
+  const onUp = e => {
+    if(e.pointerId!==pid) return;
+    item.classList.remove('dragging');
+    try{ item.releasePointerCapture(pid); }catch(_){}
+    item.removeEventListener('pointermove', onMove);
+    item.removeEventListener('pointerup', onUp);
+    item.removeEventListener('pointercancel', onUp);
+    persistRadarModOrder(list);
+    setTimeout(() => { radarJustDragged = false; }, 80);
+  };
+  item.addEventListener('pointermove', onMove);
+  item.addEventListener('pointerup', onUp);
+  item.addEventListener('pointercancel', onUp);
+}
+function bindRadarModules(root){
+  bindRadarFolds(root);
+  const list = (root||document).querySelector('#radarMods');
+  if(!list || !radarLayoutEdit) return;
+  list.querySelectorAll('.mod-handle').forEach(h => {
+    h.addEventListener('pointerdown', ev => {
+      if(ev.button) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      startRadarDrag(list, h.closest('[data-mod]'), ev);
+    });
+  });
+  list.querySelectorAll('details.rd-mod > summary').forEach(sum => {
+    let timer=null, x=0, y=0;
+    const clear = () => { if(timer){ clearTimeout(timer); timer=null; } };
+    sum.addEventListener('pointerdown', ev => {
+      if(ev.button || ev.target.closest('button, a, .mod-handle, input, select')) return;
+      x = ev.clientX; y = ev.clientY;
+      timer = setTimeout(() => { timer=null; startRadarDrag(list, sum.closest('[data-mod]'), ev); }, 420);
+    });
+    sum.addEventListener('pointermove', ev => {
+      if(!timer) return;
+      if(Math.abs(ev.clientX-x)>10 || Math.abs(ev.clientY-y)>10) clear();
+    });
+    sum.addEventListener('pointerup', clear);
+    sum.addEventListener('pointercancel', clear);
   });
 }
 function sltpTouched(sym, row, bought){
@@ -1543,9 +1697,9 @@ function renderBuyPlanCard(){
     const hitNew = (r.newly_touched||[]).length;
     const atBuy = !r.watch_only && !obs && !bought && !r._retiredHeld && (r.at_buy || (r.touched_now||[]).length);
     const hit = sltpTouched(s, r, bought && (!isLev(s) || boughtLevered()===s));
-    const cls0 = (hit.sl||hit.tp)?' touched':hitNew?' touched':atBuy?' hit':'';
+    const cls0 = (r.watch_only?' watch-only':'') + ((hit.sl||hit.tp)?' touched':hitNew?' touched':atBuy?' hit':'');
     let badges = '';
-    if(r.watch_only) badges += '<span class="badge watch">只看不买</span>';
+    if(r.watch_only) badges += '<span class="badge watch-only">只看不买</span>';
     if(obs) badges += '<span class="badge watch">只观察</span>';
     if(bought) badges += '<span class="badge">已买入</span>';
     if(hitNew) badges += `<span class="badge new">新触及 ${(r.newly_touched||[]).map(x=>fmt(x)).join('、')}</span>`;
@@ -1745,11 +1899,10 @@ function renderDcaProgressCard(prefix){
     ${dcaSyms.map(block).join('')}
   </div>`;
 }
-function renderFullPosToggle(){
-  const full = isFullPosition();
-  const marked = ensurePlan().fullPos;
-  return `<div class="row" style="margin-top:8px"><button class="sm" data-act="fullPosToggle">${full?'取消满仓标记':'标记满仓'}</button>
-    <span class="sub">${full?'当前视为满仓：更好的机会只展示为观察/替换建议，不会加入云端自选。':''}${marked===true?'（你已手动标记）':marked===false?'（你已手动取消；若总成本又超过总资金，仍会按满仓判断）': (full?'（按资金规划推断：现金已所剩无几或成本已达总资金）':'')}</span></div>`;
+function renderFullPosNote(){
+  if(!isFullPosition()) return '';
+  const observe = !(effectiveStrategy().rules) || effectiveStrategy().rules.fullPosObserveOnly!==false;
+  return `<div class="note">当前按资金规划视为<b>满仓</b>（持仓成本已达总资金，或现金所剩无几）。${observe?'云端换进来的新标的只作观察，不要因此加仓。':'本机策略未强制「满仓只观察」，请自行控制加仓。'}</div>`;
 }
 
 let CHART_LAYOUT=null, CHART_SEL=null;
@@ -1792,6 +1945,65 @@ function renderChartDetail(){
   el.innerHTML = h;
 }
 
+function renderAlertWatchCard(){
+  const A = S.settings.alert;
+  const alerts = computeAlerts();
+  let alertBody = `<div class="card rd"><h2>🚨 止损预警 <span class="grow"></span><button class="sm" data-act="alertEdit">阈值</button></h2>`;
+  if(!S.hold.length) alertBody += '<div class="sub">还没有录入持仓。到「持仓」页添加后，这里会按你设置的阈值提醒。持仓只保存在你自己的浏览器里，不会上传。</div>';
+  else if(!A.on) alertBody += '<div class="sub">预警已关闭（设置页可打开）。</div>';
+  else if(alerts.length) alertBody += alerts.map(a=>`<div class="alert">${esc(a.text)}</div>`).join('');
+  else alertBody += `<div class="okbox">暂无触发。当前阈值：亏损 ≥ ${A.lossPct}%，单日跌幅 ≥ ${A.dayPct}%，另可为每个持仓设止损价。</div>`;
+  alertBody += '<div class="sub" style="margin-top:6px">在你的手机/电脑本地计算，持仓数量和成本不会发到云端。</div></div>';
+  const hint = !S.hold.length?'未录入持仓':(A.on?(alerts.length?'已触发':'未触发'):'已关闭');
+  return { html: alertBody, hint };
+}
+function renderOvernightCard(){
+  const C = CLOUD, R = C && C.radar, m = R && R.market_summary;
+  if(!m || !(m.overview || (m.macro && m.macro.length))) return '';
+  let overnight = `<div class="card rd"><h2>🌙 隔夜美股${C.radar_stale?'<span class="badge warn">旧内容 '+esc(C.radar_date||'')+'</span>':''}</h2>`;
+  if(m.headline) overnight += `<div class="big">${formatRadarText(m.headline)}</div>`;
+  if(m.overview) overnight += `<p style="margin:.4em 0">${formatRadarText(m.overview)}</p>`;
+  if(m.macro && m.macro.length) overnight += '<h3>宏观 / 美联储</h3><ul>' + m.macro.map(x=>`<li>${formatRadarText(x)}</li>`).join('') + '</ul>';
+  overnight += '</div>';
+  return overnight;
+}
+function renderCloudWatchCard(){
+  const C = CLOUD;
+  if(!(C && !C.example && C.prices && Object.keys(C.prices).length)) return { html:'', hint:'' };
+  const syms = C.watchlist && C.watchlist.length ? C.watchlist : Object.keys(C.prices);
+  const missing = syms.filter(x => !S.watch.some(w => w.key === cloudKey(x)) && !S.hold.some(h => h.key === cloudKey(x)));
+  let watch = '<div class="card rd"><h2>⭐ 云端自选收盘</h2>';
+  watch += syms.map(sym => { const d = C.prices[sym], key = cloudKey(sym), h = S.hold.find(x=>x.key===key), nm = (C.names&&C.names[sym]) || '';
+    if(!d) return `<div class="item"><div class="grow"><div class="nm">${esc(sym)}</div><div class="sub">${esc(nm)}</div></div><div class="px sub">${esc((C.price_errors&&C.price_errors[sym])||'无数据')}</div></div>`;
+    const cur = SYM[d.currency] || (d.currency||'')+' ';
+    const plp = h && h.cost>0 ? (d.price/h.cost-1)*100 : NaN;
+    return `<div class="item"><div class="grow"><div class="nm">${esc(sym)}${d.stale?'<span class="badge warn">过期</span>':''}${h?'<span class="badge">持有</span>':''}</div><div class="sub">${esc(nm)} · ${esc(d.date||'')}${Number.isFinite(plp)?` · 相对成本 <span class="${cls(plp)}">${fmtPct(plp)}</span>`:''}</div></div>
+      <div class="px"><b class="${cls(d.change_pct)}">${cur}${fmt(d.price)}</b><span class="${cls(d.change_pct)}">${fmtPct(d.change_pct)}</span></div></div>`; }).join('');
+  if(missing.length) watch += `<div class="row" style="margin-top:8px"><button class="sm" data-act="cloudImport">＋ 把云端自选（${missing.length} 个）加入我的自选</button></div>`;
+  if(C.fx && C.fx.USDCNY) watch += `<div class="sub" style="margin-top:6px">云端汇率：1 美元 ≈ ${fmt(C.fx.USDCNY,4)} 人民币</div>`;
+  watch += '</div>';
+  return { html: watch, hint: esc(String(syms.length))+' 只' };
+}
+function renderMoreNewsCard(){
+  const R = CLOUD && CLOUD.radar;
+  if(!R) return '';
+  let extraNews = '';
+  if(R.watchlist_news && R.watchlist_news.length){
+    extraNews += '<div class="card rd"><h2>📰 自选相关消息</h2>' + R.watchlist_news.map(n => `<div class="item" style="align-items:flex-start"><div class="grow"><div class="nm">${esc(n.symbol)}<span class="badge ${n.sentiment==='利空'?'err':n.sentiment==='利好'?'':'warn'}">${esc(n.sentiment||'中性')}</span></div><div style="white-space:normal">${formatRadarText(n.summary)}</div></div></div>`).join('') + '</div>';
+  }
+  if(R.unusual_movers && R.unusual_movers.length){
+    extraNews += '<div class="card rd"><h2>🔥 未关注但值得留意的异动</h2>' + R.unusual_movers.map(m => `<div class="mv"><b>${esc(m.ticker)}</b> <span class="sub">${esc(m.name||'')}</span> <b class="${/^\s*-/.test(m.move)?'down':/^\s*\+/.test(m.move)?'up':''}" style="float:right">${esc(m.move)}</b><div style="margin-top:4px">${formatRadarText(m.reason)}</div><div class="sub" style="margin-top:4px">关联：${formatRadarText(m.relevance||'—')}</div></div>`).join('') + '<div class="sub">AI 联网整理，可能有误，只能当线索，不是买入理由。</div></div>';
+  }
+  if(R.sources && R.sources.length){
+    const srcItems = (R.sources||[]).map(x => {
+      const u = safeHttpUrl(x && x.url);
+      if(!u) return '';
+      return `<li>${radarLink(u, (x.title||'').trim() || sourceLabel(u))}</li>`;
+    }).filter(Boolean);
+    if(srcItems.length) extraNews += '<div class="card rd"><h2>信息来源</h2><ul>' + srcItems.join('') + '</ul></div>';
+  }
+  return extraNews;
+}
 function renderPlanBriefBlocks(){
   const hasHold = !!(S.hold.length || (num(S.settings.capitalUsd)>0));
   const today = todayKey();
@@ -1808,21 +2020,34 @@ function renderPlanBriefBlocks(){
     }).join(' · ');
   })();
   const mv = (planCloud()||{}).sp500_movers || {};
-  return [
-    renderBuyPlanCard(),
-    renderHoldingsSummary(),
-    renderBigNewsCard(),
-    foldBox('lev','杠杆规则', renderLeveredRulesCard()),
-    foldBox('sltp','已买标的止盈止损', renderSltpWatchCard()),
-    foldBox('dca','定投', renderDcaQuoteCard()+ (hasHold?renderDcaProgressCard('radar'):''), dcaHint?esc(dcaHint):''),
-    foldBox('movers','标普 500 涨跌榜', renderMoversCard(), mv.session_date?esc(mv.session_date):''),
-    foldBox('swaps','自动换股记录', renderSwapLogCard(), swaps.length?`<span class="badge new">今日 ${swaps.length}</span>`:''),
-    (hasHold ? foldBox('funds','持仓明细与资金曲线',
+  const alertCard = renderAlertWatchCard();
+  const cloudWatch = renderCloudWatchCard();
+  const C = CLOUD;
+  const defs = {
+    holdings: { title:'💼 持有仓', html: renderHoldingsSummary(), defaultOpen:true, actions:`<button type="button" class="sm" data-tab="hold">明细</button>` },
+    news: { title:'🗞️ 大新闻', html: renderBigNewsCard(), defaultOpen:true },
+    buys: { title:'📋 买点', html: renderBuyPlanCard(), hint: buyPlanFoldHint(), extraCls:'buy-fold' },
+    lev: { title:'杠杆规则', html: renderLeveredRulesCard() },
+    sltp: { title:'已买标的止盈止损', html: renderSltpWatchCard() },
+    dca: { title:'定投', html: renderDcaQuoteCard()+(hasHold?renderDcaProgressCard('radar'):''), hint: dcaHint?esc(dcaHint):'' },
+    movers: { title:'标普 500 涨跌榜', html: renderMoversCard(), hint: mv.session_date?esc(mv.session_date):'' },
+    swaps: { title:'自动换股记录', html: renderSwapLogCard(), hint: swaps.length?`<span class="badge new">今日 ${swaps.length}</span>`:'' },
+    funds: { title:'持仓明细与资金曲线', html: hasHold ? (
       renderAccountHoldingsCard()
       + renderTrendCard(computePlan()).replace('<div class="card">','<div class="card rd">')
-      + `<div class="card rd"><h2>满仓状态</h2>${renderFullPosToggle()}<div class="sub" style="margin-top:6px">${(effectiveStrategy().rules&&effectiveStrategy().rules.fullPosObserveOnly!==false)?'满仓时，云端换进来的新标的只作观察，不要因此加仓。':'本机策略未强制「满仓只观察」，请自行控制加仓。'}</div></div>`
-    ) : '')
-  ].filter(Boolean).join('');
+      + renderFullPosNote()
+    ) : '' },
+    alerts: { title:'止损预警', html: alertCard.html, hint: alertCard.hint },
+    overnight: { title:'隔夜说明', html: renderOvernightCard(), hint: (C && C.radar_stale)?'旧内容':'' },
+    cloudWatch: { title:'云端自选收盘', html: cloudWatch.html, hint: cloudWatch.hint },
+    moreNews: { title:'自选消息、异动与来源', html: renderMoreNewsCard() }
+  };
+  const lay = loadRadarLayout();
+  const parts = lay.order.map(id => {
+    const d = defs[id]; if(!d) return '';
+    return foldBox(id, d.title, d.html, d.hint||'', d.extraCls||'', { defaultOpen:!!d.defaultOpen, allowEmpty:!!radarLayoutEdit, actions:d.actions||'' });
+  }).filter(Boolean);
+  return `<div id="radarMods">${parts.join('')}</div>`;
 }
 
 function renderRadar(){
@@ -1832,7 +2057,10 @@ function renderRadar(){
   const tabBtn = document.querySelector('#tabs button[data-tab=radar]');
   if(tabBtn){ const old = tabBtn.querySelector('.cnt'); if(old) old.remove(); if(alerts.length) tabBtn.insertAdjacentHTML('afterbegin', `<span class="cnt">${alerts.length}</span>`); }
   const st = (typeof effectiveStrategy==='function') ? effectiveStrategy() : {_local:false};
-  let head = `<h2>📡 每日雷达 <span class="grow"></span><button class="sm" data-act="stratEdit">编辑策略</button><button class="sm" data-act="cloudReload">重新加载</button></h2>`;
+  const layoutBtns = radarLayoutEdit
+    ? `<button class="sm" data-act="layoutDone">完成</button><button class="sm" data-act="layoutReset">重置</button>`
+    : `<button class="sm" data-act="layoutEdit">编辑布局</button>`;
+  let head = `<h2>📡 每日雷达 <span class="grow"></span><button class="sm" data-act="stratEdit">编辑策略</button>${layoutBtns}<button class="sm" data-act="cloudReload">重新加载</button></h2>`;
   const warn = [];
   if(!C){
     warn.push(CLOUD_ERR || '正在加载云端数据…');
@@ -1858,91 +2086,21 @@ function renderRadar(){
   if(alerts.length){
     H.push(`<div class="card rd"><h2>🚨 提醒</h2>${alerts.map(a=>`<div class="alert">${esc(a.text)}</div>`).join('')}</div>`);
   }
+  if(radarLayoutEdit){
+    H.push(`<div class="card rd"><div class="sub">编辑布局：按 ☰ 拖动排序，或长按模块标题。点「隐藏」可去掉不常用的块，点「重置」恢复默认顺序（持有仓 → 大新闻 → 买点）。布局只保存在本机浏览器。</div></div>`);
+  }
 
   try{ H.push(renderPlanBriefBlocks()); }catch(e){ console.warn(e); H.push('<div class="warnbox">交易计划区块渲染出错：'+esc(e.message||e)+'</div>'); }
-
-  const A = S.settings.alert;
-  let alertBody = `<div class="card rd"><h2>🚨 止损预警 <span class="grow"></span><button class="sm" data-act="alertEdit">阈值</button></h2>`;
-  if(!S.hold.length) alertBody += '<div class="sub">还没有录入持仓。到「持仓」页添加后，这里会按你设置的阈值提醒。持仓只保存在你自己的浏览器里，不会上传。</div>';
-  else if(!A.on) alertBody += '<div class="sub">预警已关闭（设置页可打开）。</div>';
-  else if(alerts.length) alertBody += alerts.map(a=>`<div class="alert">${esc(a.text)}</div>`).join('');
-  else alertBody += `<div class="okbox">暂无触发。当前阈值：亏损 ≥ ${A.lossPct}%，单日跌幅 ≥ ${A.dayPct}%，另可为每个持仓设止损价。</div>`;
-  alertBody += '<div class="sub" style="margin-top:6px">在你的手机/电脑本地计算，持仓数量和成本不会发到云端。</div></div>';
-  if(!alerts.length) H.push(foldBox('alerts','止损预警', alertBody, !S.hold.length?'未录入持仓':(A.on?'未触发':'已关闭')));
-
-  if(R && (R.market_summary && (R.market_summary.overview || (R.market_summary.macro&&R.market_summary.macro.length) || R.radar_stale))){
-    const m = R.market_summary;
-    let overnight = `<div class="card rd"><h2>🌙 隔夜美股${C.radar_stale?'<span class="badge warn">旧内容 '+esc(C.radar_date||'')+'</span>':''}</h2>`;
-    if(m.headline) overnight += `<div class="big">${formatRadarText(m.headline)}</div>`;
-    if(m.overview) overnight += `<p style="margin:.4em 0">${formatRadarText(m.overview)}</p>`;
-    if(m.macro && m.macro.length) overnight += '<h3>宏观 / 美联储</h3><ul>' + m.macro.map(x=>`<li>${formatRadarText(x)}</li>`).join('') + '</ul>';
-    overnight += '</div>';
-    if(m.overview || (m.macro&&m.macro.length)) H.push(foldBox('overnight','隔夜说明', overnight, C.radar_stale?'旧内容':''));
-  }
-
-  if(C && !C.example && C.prices && Object.keys(C.prices).length){
-    const syms = C.watchlist && C.watchlist.length ? C.watchlist : Object.keys(C.prices);
-    const missing = syms.filter(x => !S.watch.some(w => w.key === cloudKey(x)) && !S.hold.some(h => h.key === cloudKey(x)));
-    let watch = '<div class="card rd"><h2>⭐ 云端自选收盘</h2>';
-    watch += syms.map(sym => { const d = C.prices[sym], key = cloudKey(sym), h = S.hold.find(x=>x.key===key), nm = (C.names&&C.names[sym]) || '';
-      if(!d) return `<div class="item"><div class="grow"><div class="nm">${esc(sym)}</div><div class="sub">${esc(nm)}</div></div><div class="px sub">${esc((C.price_errors&&C.price_errors[sym])||'无数据')}</div></div>`;
-      const cur = SYM[d.currency] || (d.currency||'')+' ';
-      const plp = h && h.cost>0 ? (d.price/h.cost-1)*100 : NaN;
-      return `<div class="item"><div class="grow"><div class="nm">${esc(sym)}${d.stale?'<span class="badge warn">过期</span>':''}${h?'<span class="badge">持有</span>':''}</div><div class="sub">${esc(nm)} · ${esc(d.date||'')}${Number.isFinite(plp)?` · 相对成本 <span class="${cls(plp)}">${fmtPct(plp)}</span>`:''}</div></div>
-        <div class="px"><b class="${cls(d.change_pct)}">${cur}${fmt(d.price)}</b><span class="${cls(d.change_pct)}">${fmtPct(d.change_pct)}</span></div></div>`; }).join('');
-    if(missing.length) watch += `<div class="row" style="margin-top:8px"><button class="sm" data-act="cloudImport">＋ 把云端自选（${missing.length} 个）加入我的自选</button></div>`;
-    if(C.fx && C.fx.USDCNY) watch += `<div class="sub" style="margin-top:6px">云端汇率：1 美元 ≈ ${fmt(C.fx.USDCNY,4)} 人民币</div>`;
-    watch += '</div>';
-    H.push(foldBox('cloudWatch','云端自选收盘', watch, esc(String(syms.length))+' 只'));
-  }
-
-  let extraNews = '';
-  if(R && R.watchlist_news && R.watchlist_news.length){
-    extraNews += '<div class="card rd"><h2>📰 自选相关消息</h2>' + R.watchlist_news.map(n => `<div class="item" style="align-items:flex-start"><div class="grow"><div class="nm">${esc(n.symbol)}<span class="badge ${n.sentiment==='利空'?'err':n.sentiment==='利好'?'':'warn'}">${esc(n.sentiment||'中性')}</span></div><div style="white-space:normal">${formatRadarText(n.summary)}</div></div></div>`).join('') + '</div>';
-  }
-  if(R && R.unusual_movers && R.unusual_movers.length){
-    extraNews += '<div class="card rd"><h2>🔥 未关注但值得留意的异动</h2>' + R.unusual_movers.map(m => `<div class="mv"><b>${esc(m.ticker)}</b> <span class="sub">${esc(m.name||'')}</span> <b class="${/^\s*-/.test(m.move)?'down':/^\s*\+/.test(m.move)?'up':''}" style="float:right">${esc(m.move)}</b><div style="margin-top:4px">${formatRadarText(m.reason)}</div><div class="sub" style="margin-top:4px">关联：${formatRadarText(m.relevance||'—')}</div></div>`).join('') + '<div class="sub">AI 联网整理，可能有误，只能当线索，不是买入理由。</div></div>';
-  }
-  if(R && R.sources && R.sources.length){
-    const srcItems = (R.sources||[]).map(x => {
-      const u = safeHttpUrl(x && x.url);
-      if(!u) return '';
-      return `<li>${radarLink(u, (x.title||'').trim() || sourceLabel(u))}</li>`;
-    }).filter(Boolean);
-    if(srcItems.length) extraNews += '<div class="card rd"><h2>信息来源</h2><ul>' + srcItems.join('') + '</ul></div>';
-  }
-  if(extraNews) H.push(foldBox('moreNews','自选消息、异动与来源', extraNews));
 
   H.push('<div class="sub" style="text-align:center;padding:8px 4px 4px">三倍杠杆 ETF 只适合短线。内容仅供学习与记录参考，不构成投资建议。持仓只存在本机浏览器。</div>');
 
   el.innerHTML = H.join('');
-  bindRadarFolds(el);
+  el.classList.toggle('layout-edit', !!radarLayoutEdit);
+  bindRadarModules(el);
   if(curTab==='radar') requestAnimationFrame(() => { paintPlanChart(); bindPlanChartEvents(); renderChartDetail(); });
 }
 
 
-/* ============ 资金规划 / AI 持仓写入 ============ */
-const HOLDINGS_INSTRUCTION = [
-  '【持仓结构化输出】当用户要求识别、录入、更新、同步或导入持仓（例如上传券商截图并说“更新持仓”）时，请先用中文给出可读的持仓表（代码、名称、数量、成本价、市场、分仓），然后必须在回复末尾单独附加一个机器可读代码块，格式必须严格如下（不要加注释或尾随逗号）：',
-  '',
-  '```holdings-json',
-  '[{"symbol":"TQQQ","market":"US","name":"ProShares UltraPro QQQ","qty":15,"cost":57.68,"bucket":"激进"}]',
-  '```',
-  '',
-  '字段说明：',
-  '- symbol：交易代码（美股如 TQQQ、AAPL；A股如 600519 或 sh600519；港股如 00700；加密如 BTC）',
-  '- market：US / HK / CN / FUND / CRYPTO 之一（也可写 美股/港股/A股/基金/加密）',
-  '- qty：持有数量，必须是数字',
-  '- cost：每股/每份成本价，使用该品种的计价货币。截图或用户未给出成本时，省略 cost 或设为 null，不要编造，也不要用现价代替',
-  '- bucket：可选，“激进”或“保守”',
-  '- account：可选，“ZA”或“盈立”。默认 ZA=QQQM/SCHD，其余为盈立',
-  '- name：可选',
-  '如果本次不是在识别或更新持仓，不要输出 holdings-json 代码块。不要把该代码块包在其他代码块里。'
-].join('\n');
-const HOLD_SHOT_PROMPT = '请识别这张券商/持仓截图中的持仓，并准备更新到我的持仓列表。请列出每只代码、名称、市场、数量和成本价；截图里没有成本价就不要编造。记得在回复末尾附加 holdings-json 代码块。';
-const ETF_AGG = /^(TQQQ|SQQQ|UPRO|SPXU|SOXL|SOXS|TNA|TZA|TECL|TECS|QLD|QID|SSO|SDS|UDOW|SDOW|TMF|TMV|LABU|LABD|FAS|FAZ|NUGT|DUST|JNUG|JDST|BOIL|KOLD|UVXY|SVXY|VXX|VIXY|SPXL|SPXS|TARK|CURE|DFEN|DUSL|NAIL|RETL|CWEB|YINN|YANG|FNGU|FNGD|BULZ|BERZ|AGQ|ZSL|UCO|SCO|GUSH|DRIP|TSLL|TSLQ|NVDL|NVDX|CONL|MSFU|GGLL|AAPU|AMDL|AMZU|BITX|ETHU|MSTU|MSTX|KORU|KORD)$/i;
-const ETF_CONS = /^(SPY|SPYM|VOO|IVV|VTI|ITOT|QQQ|QQQM|DIA|IWM|VEA|VWO|VXUS|IEFA|EFA|AGG|BND|BNDX|TLT|IEF|SHY|LQD|VCIT|VCSH|VGIT|BIV|GOVT|SGOV|BIL|MUB|SCHD|VIG|VYM|DVY|DGRO|SPYD|VT|VTV|QUAL|CSPX|VUAA|SPLG|IEI|SHV|VGSH|VTIP|TIP|GLD|IAU|SLV)$/i;
-const CN_CONS = /^(sh510050|sh510300|sh510310|sh510330|sh510500|sh512100|sh563300|sz159915|sz159919|sz159922|sz159941|sh513100|sh513110|sh513500|sz159649)$/i;
 
 function defaultBucket(type, code, name){
   const c0 = String(code||'');
@@ -2504,7 +2662,7 @@ function renderHold(){
   </div>
   ${renderSltpWatchCard()}
   ${renderDcaProgressCard('hold')}
-  <div class="card"><h2>满仓状态</h2>${renderFullPosToggle()}<div class="sub" style="margin-top:6px">满仓时，更好的机会只作为观察/替换建议展示，不会加入云端自选。</div></div>`;
+  ${renderFullPosNote()}`;
   $('#baseCur').value = b;
   if(curTab==='hold') requestAnimationFrame(paintPlanChart);
 }
@@ -2606,7 +2764,7 @@ function renderSet(){
   ${planSettingsCard('s')}
   ${renderStrategyEditorCard()}
   ${renderDcaProgressCard('set')}
-  <div class="card"><h2>满仓状态</h2>${renderFullPosToggle()}<div class="sub" style="margin-top:6px">也可按资金规划自动判断（现金所剩无几或成本已达总资金）。</div></div>
+  ${renderFullPosNote()}
   <div class="card"><h2>止损预警（只在本机计算）</h2>
     <label class="row" style="gap:8px"><input type="checkbox" id="alOn" ${st.alert.on?'checked':''}> 开启预警</label>
     <label class="f">相对成本亏损达到（%）</label><input id="alLoss" type="number" step="any" inputmode="decimal" value="${st.alert.lossPct}">
@@ -3131,11 +3289,20 @@ const ACTIONS = {
       `<button class="sm" data-d="clear">清除我的覆盖（改回技术参考）</button>`);
     dlg._clear = () => { delete ensurePlan().sltp[s]; save(); renderAll(); toast('已改回技术参考价'); };
   },
-  fullPosToggle: () => {
-    const p=ensurePlan();
-    if(isFullPosition() && p.fullPos!==false){ p.fullPos=false; toast('已取消满仓标记（若成本再次达到总资金，仍会按满仓判断）'); }
-    else { p.fullPos=true; toast('已标记满仓：云端换进来的新标的只作观察'); }
-    save(); renderAll();
+  layoutEdit: () => { radarLayoutEdit = true; renderRadar(); },
+  layoutDone: () => { radarLayoutEdit = false; renderRadar(); },
+  layoutReset: () => { saveRadarLayout(defaultRadarLayout()); toast('已恢复默认布局'); renderRadar(); },
+  modHide: a => {
+    const id = a && a.dataset.mod; if(!id) return;
+    const lay = loadRadarLayout();
+    if(!lay.hidden.includes(id)) lay.hidden.push(id);
+    saveRadarLayout(lay); renderRadar();
+  },
+  modShow: a => {
+    const id = a && a.dataset.mod; if(!id) return;
+    const lay = loadRadarLayout();
+    lay.hidden = (lay.hidden||[]).filter(x => x!==id);
+    saveRadarLayout(lay); renderRadar();
   },
   stratEdit: () => { showTab('set'); setTimeout(() => { const n=$('#stratEditor'); if(n) n.scrollIntoView({behavior:'smooth', block:'start'}); }, 60); },
   stratSave: () => {
