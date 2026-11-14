@@ -145,6 +145,28 @@ nav.tabs button .cnt{position:absolute;top:4px;left:calc(50% + 6px);background:v
 .chart-leg button{min-height:30px;padding:0 10px;font-size:12px;border-radius:15px}
 .chart-leg button i{display:inline-block;width:10px;height:3px;border-radius:1px;margin-right:5px;vertical-align:middle}
 .chart-leg button.off{opacity:.4}
+
+.badge.new{background:rgba(220,38,38,.18);color:var(--danger);font-weight:700}
+.badge.buy{background:rgba(245,158,11,.22);color:#b45309;font-weight:700}
+:root[data-theme=dark] .badge.buy{color:var(--warn)}
+.badge.watch{background:var(--soft);color:var(--sub)}
+.badge.ref{background:rgba(37,99,235,.12);color:var(--accent)}
+.buy-card{border:1px solid var(--line);border-radius:12px;padding:10px;margin:8px 0;background:var(--bg)}
+.buy-card.hit{border-color:var(--warn);background:rgba(245,158,11,.1)}
+.buy-card.touched{border-color:var(--danger);background:rgba(220,38,38,.1)}
+.buy-card .ladder{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+.buy-card .lv{font-size:12px;padding:2px 8px;border-radius:8px;background:var(--card);border:1px solid var(--line)}
+.buy-card .lv.core{font-weight:600}
+.buy-card .lv.hit{border-color:var(--warn);color:var(--warn)}
+.buy-card .lv.new{border-color:var(--danger);color:var(--danger);font-weight:700}
+.buy-card .lv.extra{opacity:.9}
+.slbox{font-size:13px;margin-top:6px}
+.slhit{border:2px solid var(--danger);background:rgba(220,38,38,.15);padding:10px;border-radius:10px;margin:8px 0}
+.chart-tip{font-size:13px;background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:8px 10px;margin-top:8px}
+.acct-h{margin:12px 0 6px;font-size:14px;color:var(--sub)}
+.ptable{overflow:auto}
+.ptable .tbl th,.ptable .tbl td{padding:6px 6px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top;white-space:nowrap}
+.opp{border:1px solid var(--line);border-radius:10px;padding:10px;margin:8px 0;background:var(--bg)}
 @media(min-width:720px){.sum{grid-template-columns:repeat(4,1fr)}}
 
 body.gated{overflow:hidden}
@@ -252,7 +274,7 @@ const QUICK = [
 ];
 
 function defaults(){
-  return { v:1, watch:[], hold:[], planHist:[], events:[], manual:{}, quotes:{},
+  return { v:1, watch:[], hold:[], planHist:[], plan:{ bought:{}, sltp:{}, dca:{}, observe:[], ignoredOpp:'', fullPos:null, swap:null }, events:[], manual:{}, quotes:{},
     fx:{ ts:0, rates:{USD:1,CNY:7.1,HKD:7.8}, manual:{}, fetched:false },
     settings:{ theme:'auto', upColor:'red', refreshSec:60, baseCur:'CNY', leadHours:24, notify:false, alert:{ on:true, lossPct:10, dayPct:5 }, capitalUsd:1500, targetAggressive:40, targetConservative:40, targetCash:20 },
     ai:{ provider:'deepseek', ctxAuto:false, system:DEFAULT_SYSTEM, providers:{}, chat:[] } };
@@ -638,11 +660,13 @@ function renderWatch(){
 let CLOUD = null, CLOUD_ERR = '', CLOUD_FROM_CACHE = false, CP = {};
 const LSC = 'invest-cloud-cache-v1';
 function cloudKey(sym){
-  const u = String(sym||'').trim().toUpperCase();
-  if(/^\d{4,5}\.HK$/.test(u)) return 'hk:' + u.split('.')[0].padStart(5,'0');
-  if(/^\d{6}\.SS$/.test(u)) return 'cn:sh' + u.slice(0,6);
-  if(/^\d{6}\.SZ$/.test(u)) return 'cn:sz' + u.slice(0,6);
-  if(/^[A-Z0-9]{2,10}-USD$/.test(u)) return 'crypto:' + u.split('-')[0];
+  const u0 = String(sym||'').trim().toUpperCase();
+  if(/^\d{4,5}\.HK$/.test(u0)) return 'hk:' + u0.split('.')[0].padStart(5,'0');
+  if(/^\d{6}\.SS$/.test(u0)) return 'cn:sh' + u0.slice(0,6);
+  if(/^\d{6}\.SZ$/.test(u0)) return 'cn:sz' + u0.slice(0,6);
+  if(/^[A-Z0-9]{2,10}-USD$/.test(u0)) return 'crypto:' + u0.split('-')[0];
+  let u = u0;
+  if(u==='BRK-B'||u==='BRKB'||u==='BRK/B') u='BRK.B';
   return 'us:' + u;
 }
 function buildCP(){
@@ -650,7 +674,18 @@ function buildCP(){
   if(!CLOUD || CLOUD.example || !CLOUD.prices) return;
   for(const sym in CLOUD.prices){
     const d = CLOUD.prices[sym]; if(!d || !(d.price>0)) continue;
-    CP[cloudKey(sym)] = { price:d.price, prev:d.prev_close ?? NaN, pct:d.change_pct ?? NaN, date:d.date, stale:!!d.stale, sym };
+    const rec = { price:d.price, prev:d.prev_close ?? NaN, pct:d.change_pct ?? NaN, date:d.date, stale:!!d.stale, label:d.price_label||'', sym };
+    CP[cloudKey(sym)] = rec;
+    if(/^(BRK-B|BRK\.B)$/.test(String(sym).toUpperCase())){
+      CP['us:BRK.B'] = rec; CP['us:BRK-B'] = rec;
+    }
+  }
+  if(CLOUD.plan && CLOUD.plan.buy_table){
+    CLOUD.plan.buy_table.forEach(r => {
+      if(!r || !(r.price>0)) return;
+      const rec = { price:r.price, prev:r.prev_close ?? NaN, pct:r.change_pct ?? NaN, date:r.date, stale:!!r.stale, label:r.price_label||'', sym:r.symbol };
+      CP[cloudKey(r.symbol)] = CP[cloudKey(r.symbol)] || rec;
+    });
   }
 }
 async function loadCloud(rerender){
@@ -675,7 +710,14 @@ function computeAlerts(){
   P.rows.forEach(r => {
     if(!r.p) return;
     const nm = nameOf(r.h.key, r.h.name), sym = SYM[r.cur];
-    if(r.h.stop>0 && r.p.price <= r.h.stop) out.push({lv:2, text:`${nm} 现价 ${sym}${fmt(r.p.price)}，已触及止损价 ${sym}${fmt(r.h.stop)}`});
+    if(r.h.stop>0 && r.p.price <= r.h.stop) out.push({lv:2, text:`${nm} 现价 ${sym}${fmt(r.p.price)}，已触及止损价 ${sym}${fmt(r.h.stop)}。请整笔卖出，不要拆单。`});
+    if(r.h.take>0 && r.p.price >= r.h.take) out.push({lv:2, text:`${nm} 现价 ${sym}${fmt(r.p.price)}，已触及止盈价 ${sym}${fmt(r.h.take)}。请整笔卖出，不要拆单。`});
+    const ps = planSymFromKey(r.h.key);
+    if(ps && (PLAN_LEVERED.includes(ps) || ps==='NVDA') && isBought(ps)){
+      const t0 = sltpOf(ps);
+      if(!(r.h.stop>0) && t0.sl>0 && r.p.price<=t0.sl) out.push({lv:2, text:`${nm} 现价 ${sym}${fmt(r.p.price)}，已触及${t0.custom?'我的':'参考'}止损 ${sym}${fmt(t0.sl)}。请整笔卖出，不要拆单。`});
+      if(!(r.h.take>0) && t0.tp>0 && r.p.price>=t0.tp) out.push({lv:2, text:`${nm} 现价 ${sym}${fmt(r.p.price)}，已触及${t0.custom?'我的':'参考'}止盈 ${sym}${fmt(t0.tp)}。请整笔卖出，不要拆单。`});
+    }
     if(Number.isFinite(r.plp) && r.plp <= -A.lossPct) out.push({lv:2, text:`${nm} 相对成本亏损 ${fmtPct(r.plp)}，超过预警线 -${A.lossPct}%`});
     if(Number.isFinite(r.p.pct) && r.p.pct <= -A.dayPct) out.push({lv:1, text:`${nm} 最近一个交易日下跌 ${fmtPct(r.p.pct)}，超过预警线 -${A.dayPct}%`});
   });
@@ -803,6 +845,441 @@ function formatRadarText(raw){
   return html;
 }
 
+/* ============ 交易计划（买点 / 分批 / 参考止盈止损 / 本机状态） ============ */
+const PLAN_CORE = {
+  NVDA:  { name:'英伟达', levels:[150,140,125,110], kind:'nvda', aggressive:true, earnings:'2026-11-18' },
+  ADBE:  { name:'Adobe', levels:[225,205,190], kind:'stock', aggressive:true, earningsBj:'2026-12-10' },
+  'BRK.B':{ name:'伯克希尔B', levels:[560,530], kind:'brk', aggressive:true, decideBy:'2026-12-15' },
+  TQQQ:  { name:'纳指3倍做多', levels:[52,50], kind:'levered', aggressive:true },
+  SOXL:  { name:'半导体3倍做多', levels:[47,41], kind:'levered', aggressive:true },
+  KORU:  { name:'韩国3倍做多', levels:[7,6.5], kind:'levered', aggressive:true }
+};
+const PLAN_LEVERED = ['TQQQ','SOXL','KORU'];
+const PLAN_DCA_SYMS = ['QQQM','SCHD'];
+const PLAN_ACCOUNTS = ['ZA','盈立'];
+function planDefaults(){
+  return { bought:{}, sltp:{}, dca:{ QQQM:{planned:0,done:0,nextDate:'',amount:''}, SCHD:{planned:0,done:0,nextDate:'',amount:''} }, observe:[], ignoredOpp:'', fullPos:null, swap:null };
+}
+function ensurePlan(){
+  if(!S.plan || typeof S.plan!=='object') S.plan = planDefaults();
+  S.plan = merge(planDefaults(), S.plan);
+  if(!S.plan.dca.QQQM) S.plan.dca.QQQM = {planned:0,done:0,nextDate:'',amount:''};
+  if(!S.plan.dca.SCHD) S.plan.dca.SCHD = {planned:0,done:0,nextDate:'',amount:''};
+  return S.plan;
+}
+function canonPlanSym(s){
+  let u = String(s||'').trim().toUpperCase();
+  u = u.replace(/^US:/,'').replace(/^\$/,'');
+  if(u==='BRK-B'||u==='BRKB'||u==='BRK/B') return 'BRK.B';
+  return u;
+}
+function planKey(sym){ return 'us:' + canonPlanSym(sym); }
+function planSymFromKey(key){
+  if(!key) return '';
+  const {type,code} = splitKey(key);
+  if(type!=='us') return canonPlanSym(code);
+  return canonPlanSym(code);
+}
+function defaultAccount(symOrHold){
+  const s = typeof symOrHold==='string' ? canonPlanSym(symOrHold)
+    : planSymFromKey(symOrHold && (symOrHold.key || ''));
+  if(s==='QQQM' || s==='SCHD') return 'ZA';
+  return '盈立';
+}
+function holdAccount(h){
+  if(h && (h.account==='ZA'||h.account==='盈立')) return h.account;
+  return defaultAccount(h);
+}
+function hasHolding(sym){
+  const key = planKey(sym), alt = 'us:' + canonPlanSym(sym).replace('.','-');
+  return (S.hold||[]).some(h => h && h.qty>0 && (h.key===key || h.key===alt || planSymFromKey(h.key)===canonPlanSym(sym)));
+}
+function isBought(sym){
+  const s = canonPlanSym(sym);
+  const flag = ensurePlan().bought[s];
+  if(flag===true) return true;
+  if(flag===false && !hasHolding(s)) return false;
+  return hasHolding(s);
+}
+function markBought(sym, yes){
+  const s = canonPlanSym(sym);
+  if(yes){ ensurePlan().bought[s] = true; }
+  else {
+    if(hasHolding(s)){ toast('持仓里还有 '+s+'，仍视为已买入。请先在持仓中删除或把数量改为 0。'); return false; }
+    ensurePlan().bought[s] = false;
+  }
+  save(); renderAll();
+  return true;
+}
+function isFullPosition(){
+  const p = ensurePlan();
+  if(p.fullPos===true) return true;
+  if(p.fullPos===false) return false;
+  try{
+    const plan = computePlan();
+    if(Number.isFinite(plan.capital) && plan.capital>0 && Number.isFinite(plan.costAll) && plan.costAll>=plan.capital-1e-6) return true;
+    if(Number.isFinite(plan.cash) && Number.isFinite(plan.capital) && plan.capital>0 && plan.cash<=Math.max(10, plan.capital*0.02)) return true;
+  }catch(_){}
+  return false;
+}
+function boughtLevered(){ return PLAN_LEVERED.find(s => isBought(s)) || ''; }
+function sltpOf(sym){
+  const s = canonPlanSym(sym);
+  const loc = (ensurePlan().sltp||{})[s] || {};
+  const row = planCloudRow(s) || {};
+  const sl = (loc.sl>0) ? loc.sl : (row.ref_sl>0?row.ref_sl:NaN);
+  const tp = (loc.tp>0) ? loc.tp : (row.ref_tp>0?row.ref_tp:NaN);
+  const custom = !!(loc.sl>0 || loc.tp>0);
+  return { sl, tp, custom, reason:row.sl_tp_reason||'', url:row.sl_tp_url||'', stale:!!row.sl_tp_stale, refSl:row.ref_sl, refTp:row.ref_tp };
+}
+function planCloud(){ return (CLOUD && !CLOUD.example && CLOUD.plan) ? CLOUD.plan : null; }
+function planCloudRow(sym){
+  const s = canonPlanSym(sym);
+  const rows = (planCloud()||{}).buy_table || [];
+  return rows.find(r => r && canonPlanSym(r.symbol)===s) || null;
+}
+function cloudPx(sym){
+  const s = canonPlanSym(sym);
+  const row = planCloudRow(s);
+  if(row && row.price>0) return { price:row.price, prev:row.prev_close, pct:row.change_pct, date:row.date, label:row.price_label||'收盘', stale:!!row.stale };
+  const rec = CLOUD && CLOUD.prices && (CLOUD.prices[s] || CLOUD.prices[s.replace('.','-')]);
+  if(rec && rec.price>0) return { price:rec.price, prev:rec.prev_close, pct:rec.change_pct, date:rec.date, label:rec.price_label||'收盘', stale:!!rec.stale };
+  const q = priceOf(planKey(s));
+  if(q && q.price>0) return { price:q.price, prev:q.prev, pct:q.pct, date:q.date, label:'行情', stale:!!q.stale };
+  return null;
+}
+
+function renderLadder(row, opts){
+  const core = (row.levels||[]).slice();
+  const extra = (row.extra_tranches||[]).slice();
+  const newly = (row.newly_touched||[]).map(Number);
+  const touched = (row.touched_now||[]).map(Number);
+  const near = (a,b) => Number.isFinite(a)&&Number.isFinite(b)&&Math.abs(a-b)<=Math.max(0.01, Math.abs(b)*0.004);
+  const chip = (lv, kind) => {
+    const hit = touched.some(x=>near(x,lv));
+    const neu = newly.some(x=>near(x,lv));
+    return `<span class="lv ${kind}${neu?' new':hit?' hit':''}">${kind==='extra'?'补 ':''}${fmt(lv, lv>=100?2:lv>=10?2:3)}${neu?' 新触及':hit?' 已到':''}</span>`;
+  };
+  const html = core.map(lv=>chip(lv,'core')).join('') + extra.map(lv=>chip(lv,'extra')).join('');
+  return html ? `<div class="ladder">${html}</div>` : '';
+}
+function gapText(row){
+  if(row.watch_only) return '财报前只看不买，不提示买入。';
+  if(!(row.nearest_level>0) || !Number.isFinite(row.gap_pct)) return '买点缺口暂缺。';
+  const lv = row.nearest_level, gp = row.gap_price, pct = row.gap_pct;
+  if(pct<=0) return `已到买点 ${fmt(lv)}（现价相对该买点 ${fmtPct(pct)}）。`;
+  return `距买点 ${fmt(lv)} 还差 ${fmt(gp)}（${fmtPct(pct)}）。`;
+}
+function sltpRefHtml(sym, row, bought){
+  const t = sltpOf(sym);
+  const px = (row && row.price) || (cloudPx(sym)||{}).price;
+  const bits = [];
+  const lab = t.custom ? '我的' : 'AI 参考';
+  if(t.sl>0){
+    let d = '';
+    if(px>0){ const dp = px-t.sl, pct=(px/t.sl-1)*100; d = `，距止损 ${fmt(dp)}（${fmtPct(pct)}）`; }
+    bits.push(`止损 ${fmt(t.sl)}（${lab}）${d}`);
+  } else bits.push('止损尚未给出');
+  if(t.tp>0){
+    let d = '';
+    if(px>0){ const dp = t.tp-px, pct=(t.tp/px-1)*100; d = `，距止盈 ${fmt(dp)}（${fmtPct(pct)}）`; }
+    bits.push(`止盈 ${fmt(t.tp)}（${lab}）${d}`);
+  } else bits.push('止盈尚未给出');
+  const miss = !(t.sl>0 && t.tp>0);
+  const hitSl = bought && t.sl>0 && px>0 && px<=t.sl;
+  const hitTp = bought && t.tp>0 && px>0 && px>=t.tp;
+  let box = `<div class="slbox ${hitSl||hitTp?'':'sub'}">${bits.join(' · ')}`;
+  if(t.reason) box += `<div class="sub" style="margin-top:2px">${esc(t.reason)}${t.url?' · '+radarLink(t.url, sourceLabel(t.url)):''}${t.stale?' <span class="badge warn">旧参考</span>':''}</div>`;
+  else box += `<div class="sub" style="margin-top:2px">以上为止盈止损参考，不是下单指令。可在本机改成你自己的价格。</div>`;
+  box += `<div class="row" style="margin-top:6px"><button class="sm" data-act="sltpEdit" data-sym="${esc(canonPlanSym(sym))}">改参考价</button></div></div>`;
+  if(miss) box = `<div class="warnbox">请补上${canonPlanSym(sym)}的参考止损 / 止盈（AI 尚未给出或未生成本次简报），不要编造，按你自己的规则填。</div>` + box;
+  if(hitSl||hitTp){
+    box = `<div class="slhit"><b>${hitSl?'已触及止损':'已触及止盈'}</b>：请整笔卖出，不要拆单。` + box + '</div>';
+  }
+  return box;
+}
+function boughtBtns(sym){
+  const s = canonPlanSym(sym);
+  if(isBought(s)) return `<button class="sm" data-act="planUnbuy" data-sym="${esc(s)}">取消已买入</button>`;
+  return `<button class="sm" data-act="planBuy" data-sym="${esc(s)}">标记已买入</button>`;
+}
+
+function visibleBuyRows(){
+  const P = planCloud();
+  const swap = ensurePlan().swap;
+  let rows = (P && P.buy_table) ? P.buy_table.slice() : Object.keys(PLAN_CORE).map(sym => ({ symbol:sym, name:PLAN_CORE[sym].name, kind:PLAN_CORE[sym].kind, levels:PLAN_CORE[sym].levels, watch_only:PLAN_CORE[sym].kind==='nvda', tranche_levels:PLAN_CORE[sym].levels }));
+  const out = [];
+  for(let r of rows){
+    r = Object.assign({}, r);
+    const s = canonPlanSym(r.symbol);
+    if(swap && canonPlanSym(swap.replace)===s) continue; // 本机同意替换后隐藏被换掉的
+    if(s==='BRK.B' && isBought(s)) continue;
+    r._bought = isBought(s);
+    r._observeOnly = false;
+    const heldLev = boughtLevered();
+    if(PLAN_LEVERED.includes(s) && heldLev && heldLev!==s){
+      r._observeOnly = true;
+    }
+    out.push(r);
+  }
+  if(swap && swap.with_ticker){
+    const s = canonPlanSym(swap.with_ticker);
+    if(!out.some(x => canonPlanSym(x.symbol)===s)){
+      const px = cloudPx(s);
+      out.push({ symbol:s, name:swap.with_name||s, kind:'swap', levels:swap.tranches||(swap.buy_point?[swap.buy_point]:[]), extra_tranches:[], ref_sl:swap.stop_loss, ref_tp:swap.take_profit, price:px&&px.price, change_pct:px&&px.pct, price_label:px&&px.label, date:px&&px.date, _bought:isBought(s), _observeOnly:false, notes:['本机已同意替换 '+ (swap.replace||'')], local:true });
+    }
+  }
+  return out;
+}
+function renderBuyPlanCard(){
+  const P = planCloud();
+  const rows = visibleBuyRows();
+  const pending = !P;
+  let h = `<div class="card rd"><h2>📋 买点与分批</h2>`;
+  if(pending) h += '<div class="warnbox">云端还没有新版交易计划。上传 <code>scripts/update_daily.py</code> 后，到 Actions 手动运行一次「每日雷达」，这里就会出现按行情计算的价格和缺口。下面的标记买入、止盈止损和定投进度现在就能用。</div>';
+  else if(P.ai_stale) h += `<div class="warnbox">价格和买点缺口已按最新行情更新；AI 参考止盈止损 / 新闻是 ${esc(CLOUD.radar_date||'之前')} 的旧内容。</div>`;
+  const levHeld = boughtLevered();
+  const levReached = ((P&&P.levered&&P.levered.reached_buy)||[]).filter(s => !levHeld || s===levHeld);
+  if(!levHeld){
+    h += '<div class="note">三只杠杆 ETF（TQQQ / SOXL / KORU）同时只拿一只：哪只先到买点就买哪只；买了之后，另外两只只观察、不提示买入。</div>';
+    if(levReached.length) h += `<div class="warnbox">买点提醒：${levReached.map(esc).join('、')} 已到买点，请只选买一只。</div>`;
+  } else {
+    h += `<div class="note">已标记买入杠杆 ETF <b>${esc(levHeld)}</b>。另外两只只观察，不再提示买入；止损止盈只显示这一只。</div>`;
+  }
+  if(!rows.length) h += '<div class="empty">暂无可见买点（例如 BRK.B 已标记买入）。</div>';
+  rows.forEach(r => {
+    const s = canonPlanSym(r.symbol);
+    const px = r.price || (cloudPx(s)||{}).price;
+    const lab = r.price_label || (cloudPx(s)||{}).label || '收盘';
+    const bought = r._bought, obs = r._observeOnly;
+    const hitNew = (r.newly_touched||[]).length;
+    const atBuy = !r.watch_only && !obs && !bought && (r.at_buy || (r.touched_now||[]).length);
+    const cls0 = hitNew?' touched':atBuy?' hit':'';
+    let badges = '';
+    if(r.watch_only) badges += '<span class="badge watch">只看不买</span>';
+    if(obs) badges += '<span class="badge watch">只观察</span>';
+    if(bought) badges += '<span class="badge">已买入</span>';
+    if(hitNew) badges += `<span class="badge new">新触及 ${(r.newly_touched||[]).map(x=>fmt(x)).join('、')}</span>`;
+    else if(atBuy) badges += '<span class="badge buy">买点提醒</span>';
+    if(r.stale) badges += '<span class="badge warn">过期</span>';
+    const showBuyPrompt = !r.watch_only && !obs && !bought;
+    h += `<div class="buy-card${cls0}">
+      <div class="row"><div class="grow"><b>${esc(s)}</b> <span class="sub">${esc(r.name||(PLAN_CORE[s]&&PLAN_CORE[s].name)||'')}</span>${badges}</div>
+        <div class="px"><b class="${cls(r.change_pct)}">${px?('$'+fmt(px)):'—'}</b><span class="sub"> ${esc(lab)}</span><div class="${cls(r.change_pct)}">${fmtPct(r.change_pct)}</div></div></div>
+      ${r.watch_only?'<div class="sub" style="margin-top:4px">'+gapText(r)+'</div>':(showBuyPrompt||bought||obs?`<div style="margin-top:4px">${obs?'只观察，不提示买入。':gapText(r)}</div>`:'')}
+      <div class="sub" style="margin-top:4px">核心买点（分批梯子）${PLAN_CORE[s]&&PLAN_CORE[s].aggressive?' · 激进仓分批':''}</div>
+      ${renderLadder(r)}
+      ${(r.notes||[]).map(n=>`<div class="sub" style="margin-top:4px">${esc(n)}</div>`).join('')}
+      ${s==='BRK.B' && !bought && planCloud() && planCloud().calendar && todayKey()>=planCloud().calendar.brk_decide_by ? '<div class="warnbox">已到 12 月 15 日仍未标记买入，请决定要不要直接买。</div>':''}
+      ${sltpRefHtml(s, r, bought && (!PLAN_LEVERED.includes(s) || boughtLevered()===s) && (PLAN_LEVERED.includes(s)||s==='NVDA'||bought))}
+      <div class="row" style="margin-top:6px">${boughtBtns(s)}</div>
+    </div>`;
+  });
+  h += '<div class="sub" style="margin-top:8px">核心买点来自你定下的梯子；补充批次和止盈止损是 AI 参考，可在本机覆盖。已买入的杠杆 ETF 与 NVDA 触及止盈止损时会醒目提醒整笔卖出、不要拆单。标记买入只存在本机浏览器。</div></div>';
+  return h;
+}
+function renderDcaQuoteCard(){
+  const P = planCloud();
+  const rows = (P && P.dca) ? P.dca : PLAN_DCA_SYMS.map(s => ({symbol:s, ...(cloudPx(s)||{})}));
+  const cell = r => {
+    const lab = r.price_label || '收盘';
+    return `<div><span class="sub">${esc(r.symbol)} · ${esc(lab)}</span><b class="${cls(r.change_pct)}">${r.price?('$'+fmt(r.price)):'—'}</b><span class="${cls(r.change_pct)}">${fmtPct(r.change_pct)}</span></div>`;
+  };
+  return `<div class="card rd"><h2>📌 定投行情</h2><div class="sum">${rows.map(cell).join('')}</div>
+    <div class="sub" style="margin-top:6px">QQQM、SCHD 用于定投记录。每批执行完请取消定投，12 月底前做完。</div></div>`;
+}
+function renderMoversCard(){
+  const P = planCloud(); if(!P) return '';
+  const m = P.sp500_movers || {};
+  let h = `<div class="card rd"><h2>📊 标普 500 涨跌榜</h2>`;
+  if(m.error && !(m.gainers||[]).length){ h += `<div class="warnbox">${esc(m.error)}</div></div>`; return h; }
+  h += `<div class="sub">上一交易日 ${esc(m.session_date||'')} 涨幅、跌幅各前 3 名（涨跌幅来自行情接口，原因来自联网核实）。不会自动把新代码加入自选。</div>`;
+  const col = (title, arr, up) => `<h3>${title}</h3>` + (arr||[]).map(x => `<div class="mv"><b>${esc(x.ticker)}</b> <span class="sub">${esc(x.name||'')}</span> <b class="${up?'up':'down'}" style="float:right">${fmtPct(x.change_pct)}</b><div style="margin-top:4px">${formatRadarText(x.reason||'未能核实')}</div></div>`).join('');
+  h += col('涨幅前 3', m.gainers, true) + col('跌幅前 3', m.losers, false);
+  h += '</div>';
+  return h;
+}
+function oppKey(o){ return [o.ticker, o.vs||'', (o.tranches||[]).join(','), o.why||''].join('|'); }
+function renderOppCard(){
+  const P = planCloud();
+  const list = ((P && P.opportunities) || []).filter(o => o && o.ticker);
+  if(!list.length) return '';
+  const ign = ensurePlan().ignoredOpp;
+  const full = isFullPosition();
+  let h = `<div class="card rd"><h2>🔎 观察 / 替换建议</h2>
+    <div class="sub">若出现明显好于当前观察池或计划标的的机会，会显示在这里。系统不会自动改云端自选。${full?' 当前视为<b>满仓</b>，只作观察展示，不会加入云端自选。':''}</div>`;
+  list.forEach((o,i) => {
+    const k = oppKey(o);
+    if(ign && ign===k) { h += `<div class="opp sub">已忽略 ${esc(o.ticker)}</div>`; return; }
+    const already = (S.watch||[]).some(w => planSymFromKey(w.key)===canonPlanSym(o.ticker)) || (ensurePlan().observe||[]).some(x => canonPlanSym(x.ticker)===canonPlanSym(o.ticker));
+    h += `<div class="opp"><b>${esc(o.ticker)}</b> <span class="sub">${esc(o.name||'')}</span>${o.vs?` <span class="badge">对比 ${esc(o.vs)}</span>`:''}
+      <div style="margin-top:4px">${esc(o.why||'')}</div>
+      ${o.tranches&&o.tranches.length?`<div class="sub" style="margin-top:4px">建议分批买点：${o.tranches.map(x=>fmt(x)).join(' / ')}</div>`:''}
+      <div class="sub">参考止损 ${o.stop_loss?fmt(o.stop_loss):'—'} · 参考止盈 ${o.take_profit?fmt(o.take_profit):'—'}（AI 参考）</div>
+      ${o.reason?`<div class="sub">${esc(o.reason)}${o.url?' · '+radarLink(o.url, sourceLabel(o.url)):''}</div>`:''}
+      <div class="row" style="margin-top:8px">
+        ${full||already?'':`<button class="sm pri" data-act="oppAdd" data-i="${i}">加入本机观察</button>`}
+        ${full||already||!o.vs?'':`<button class="sm" data-act="oppReplace" data-i="${i}">替换 ${esc(o.vs)}</button>`}
+        <button class="sm" data-act="oppIgnore" data-i="${i}">忽略</button>
+        ${already?'<span class="sub">已在本机观察/自选中</span>':''}
+        ${full?'<span class="sub">满仓：仅展示，不写入云端自选</span>':''}
+      </div></div>`;
+  });
+  h += '</div>';
+  return h;
+}
+function renderBigNewsCard(){
+  const news = (planCloud() && planCloud().big_news) || [];
+  if(!news.length) return '';
+  return `<div class="card rd"><h2>🗞️ 大新闻</h2><ul>` + news.map(n => `<li>${formatRadarText(n.summary||'')}${n.url?' · '+radarLink(n.url, sourceLabel(n.url) || '来源'):''}</li>`).join('') + '</ul></div>';
+}
+function renderPlanDisclaimer(){
+  return '<div class="note">⚠️ 三倍杠杆 ETF 只适合短线。以上不构成投资建议。AI 参考止盈止损和补充买点不是下单指令。</div>';
+}
+
+function renderAccountHoldingsCard(){
+  const plan = computePlan();
+  if(!(S.hold||[]).length && !(plan.capUsd>0)) return '';
+  const b = plan.base;
+  const groups = { 'ZA':[], '盈立':[] };
+  plan.rows.forEach(r => { const a = holdAccount(r.h); (groups[a]||(groups[a]=[])).push(r); });
+  const cashYing = plan.cash; // 现金记在盈立
+  let h = `<div class="card rd"><h2>💼 持仓与盈亏</h2>
+    <div class="sub">按账户分列。默认 ZA = QQQM、SCHD；盈立 = BRK.B、杠杆 ETF、NVDA 和现金。可在添加/编辑持仓时修改。成本已计入手续费。数字按当前汇总币种（${esc(b)}）显示，计划仍以美元记账。</div>`;
+  const rowHtml = r => {
+    const s=SYM[r.cur];
+    const day = r.cd, dayp = (r.p && Number.isFinite(r.p.pct)) ? r.p.pct : NaN;
+    return `<div class="item" data-act="holdEdit" data-id="${r.h.id}" style="align-items:flex-start"><div class="grow">
+      <div class="nm">${esc(nameOf(r.h.key,r.h.name))} <span class="sub">${esc(showCode(splitKey(r.h.key).type, splitKey(r.h.key).code))}</span></div>
+      <div class="sub">数量 ${fmtQty(r.h.qty)} · 成本（含费） ${s}${fmt(r.h.cost)} · ${r.bucket==='conservative'?'保守仓':'激进仓'}</div>
+      <div class="sub">收盘 ${r.p?s+fmt(r.p.price):'—'}${r.p&&r.p.cloud?'（云端）':''}</div>
+    </div><div class="px">
+      <div class="sub">当日</div><span class="${cls(day)}">${Number.isFinite(day)?fmtMoney(day,b):'—'}${Number.isFinite(dayp)?' · '+fmtPct(dayp):''}</span>
+      <div class="sub">累计</div><span class="${cls(r.pl)}">${r.p?fmtMoney(r.cv-r.cc,b)+'（'+fmtPct(r.plp)+'）':'无价格'}</span>
+    </div></div>`;
+  };
+  PLAN_ACCOUNTS.forEach(acc => {
+    const rs = groups[acc]||[];
+    const mv = rs.reduce((t,r)=>t+(Number.isFinite(r.cv)?r.cv:0),0);
+    const cost = rs.reduce((t,r)=>t+(Number.isFinite(r.cc)?r.cc:0),0);
+    const day = rs.reduce((t,r)=>t+(Number.isFinite(r.cd)?r.cd:0),0);
+    h += `<div class="acct-h"><b>${acc}</b> · 市值 ${fmtMoney(mv,b)} · 成本 ${fmtMoney(cost,b)} · 当日 ${fmtMoney(day,b)}</div>`;
+    if(acc==='盈立') h += `<div class="sub" style="margin:0 0 6px">现金 ${fmtMoney(cashYing,b)}（总资金 − 持仓总成本）</div>`;
+    h += rs.length ? rs.map(rowHtml).join('') : '<div class="sub">该账户暂无持仓。</div>';
+  });
+  const start = plan.capUsd, assetsUsd = conv(plan.assets, b, 'USD'), dayUsd = conv(plan.day, b, 'USD');
+  const ret = (Number.isFinite(assetsUsd) && start>0) ? (assetsUsd/start-1)*100 : NaN;
+  h += `<div class="sum" style="margin-top:10px">
+    <div><span class="sub">总资产</span><b>${fmtMoney(plan.assets,b)}</b><span class="sub">${b==='USD'?'':('合 '+fmtMoney(assetsUsd,'USD'))}</span></div>
+    <div><span class="sub">相对起点 ${fmtMoney(start,'USD')}</span><b class="${cls(ret)}">${fmtPct(ret)}</b></div>
+    <div><span class="sub">当日盈亏</span><b class="${cls(plan.day)}">${fmtMoney(plan.day,b)}</b></div>
+    <div><span class="sub">现金 / 仓位</span><b>${fmtMoney(plan.cash,b)}</b><span class="sub">激进 ${fmtMoney(plan.aggMv,b)} · 保守 ${fmtMoney(plan.consMv,b)}</span></div>
+  </div></div>`;
+  return h;
+}
+function renderSltpWatchCard(){
+  const names = [];
+  const lev = boughtLevered();
+  if(lev) names.push(lev);
+  if(isBought('NVDA') || hasHolding('NVDA')) names.push('NVDA');
+  // 未买的不在此强调距离，买点卡里已有参考价
+  if(!names.length) return '';
+  let h = `<div class="card rd"><h2>🎯 已买标的止盈止损</h2><div class="sub">只针对已买入的杠杆 ETF 和 NVDA。触及时请整笔卖出，不要拆单。价格以本机覆盖为准，没有覆盖则用 AI 参考价。</div>`;
+  names.forEach(s => {
+    const row = planCloudRow(s) || { price:(cloudPx(s)||{}).price };
+    h += `<div class="buy-card">${esc(s)}${sltpRefHtml(s, row, true)}</div>`;
+  });
+  h += '</div>';
+  return h;
+}
+function renderDcaProgressCard(prefix){
+  const st = ensurePlan().dca;
+  const deadline = (planCloud() && planCloud().calendar && planCloud().calendar.dca_deadline) || '2026-12-31';
+  const late = todayKey() > deadline;
+  const field = (sym, k, label, typ, extra) => {
+    const v = (st[sym]||{})[k] ?? '';
+    return `<div class="grow"><div class="sub">${label}</div><input data-dca-sym="${sym}" data-dca-k="${k}" type="${typ}" ${typ==='number'?'step="any" min="0" inputmode="decimal"':''} value="${esc(v)}" ${extra||''}></div>`;
+  };
+  const block = sym => `<div style="border-top:1px solid var(--line);margin-top:10px;padding-top:8px"><b>${esc(sym)}</b>
+    <div class="row">
+      ${field(sym,'planned','计划批次数','number')}
+      ${field(sym,'done','已完成批次数','number')}
+    </div>
+    <div class="row">
+      ${field(sym,'nextDate','下一批日期','date')}
+      ${field(sym,'amount','每批金额（可选，美元）','number')}
+    </div>
+    <div class="sub" style="margin-top:4px">${(st[sym]&&st[sym].done>0)?'已完成 '+esc(st[sym].done)+' 批。':''} 每批执行完请取消定投，${deadline.slice(0,4)} 年底前做完。</div>
+  </div>`;
+  return `<div class="card"><h2>📅 定投进度</h2>
+    <div class="sub">QQQM、SCHD 各完成了几批、下一批日期，由你自己填写（你还没有提供批次和日期，所以这里先是空的）。只存在本机浏览器。</div>
+    ${late?'<div class="warnbox">已过 2026 年 12 月底，请确认定投是否已全部完成并取消自动扣款。</div>':''}
+    ${block('QQQM')}${block('SCHD')}
+  </div>`;
+}
+function renderFullPosToggle(){
+  const full = isFullPosition();
+  const marked = ensurePlan().fullPos;
+  return `<div class="row" style="margin-top:8px"><button class="sm" data-act="fullPosToggle">${full?'取消满仓标记':'标记满仓'}</button>
+    <span class="sub">${full?'当前视为满仓：更好的机会只展示为观察/替换建议，不会加入云端自选。':''}${marked===true?'（你已手动标记）':marked===false?'（你已手动取消；若总成本又超过总资金，仍会按满仓判断）': (full?'（按资金规划推断：现金已所剩无几或成本已达总资金）':'')}</span></div>`;
+}
+
+let CHART_LAYOUT=null, CHART_SEL=null;
+function bindPlanChartEvents(){
+  const c = $('#planChart'); if(!c || c._bound) return;
+  c._bound = true;
+  const pick = ev => {
+    if(!CHART_LAYOUT || !CHART_LAYOUT.rows || !CHART_LAYOUT.rows.length) return;
+    const rec = ev.touches?ev.touches[0]:ev;
+    const rect = c.getBoundingClientRect();
+    const x = rec.clientX - rect.left;
+    let best=0, bd=1e9;
+    CHART_LAYOUT.rows.forEach((_,i) => { const d=Math.abs(CHART_LAYOUT.xAt(i)-x); if(d<bd){ bd=d; best=i; } });
+    CHART_SEL = best;
+    paintPlanChart();
+    renderChartDetail();
+  };
+  c.addEventListener('click', pick);
+  c.addEventListener('mousemove', ev => { if(ev.buttons) return; pick(ev); });
+  c.addEventListener('touchstart', pick, {passive:true});
+}
+function renderChartDetail(){
+  const el = $('#planChartDetail'); if(!el) return;
+  const rows = (S.planHist||[]).filter(x=>x&&x.date);
+  const i = (CHART_SEL==null) ? rows.length-1 : CHART_SEL;
+  const snap = rows[i];
+  if(!snap){ el.innerHTML = ''; return; }
+  const b = S.settings.baseCur;
+  const toB = x => conv(x,'USD',b);
+  let h = `<b>${esc(snap.date)}</b> · 总资产 ${fmtMoney(toB(snap.assets),b)} · 现金 ${fmtMoney(toB(snap.cash),b)} · 激进 ${fmtMoney(toB(snap.agg),b)} · 保守 ${fmtMoney(toB(snap.cons),b)}`;
+  if(Number.isFinite(snap.day)) h += ` · 当日 ${fmtMoney(toB(snap.day),b)}`;
+  const hs = snap.hold || [];
+  if(hs.length){
+    h += '<div class="ptable" style="margin-top:6px"><table class="tbl"><thead><tr><th>代码</th><th>账户</th><th>数量</th><th>成本</th><th>收盘</th><th>市值</th><th>累计盈亏</th></tr></thead><tbody>';
+    hs.forEach(x => {
+      h += `<tr><td>${esc(x.sym||x.name||'')}</td><td>${esc(x.account||'')}</td><td>${fmtQty(x.qty)}</td><td>${fmt(x.cost)}</td><td>${x.price?fmt(x.price):'—'}</td><td>${fmtMoney(toB(x.mvUsd),b)}</td><td class="${cls(x.plUsd)}">${fmtMoney(toB(x.plUsd),b)}</td></tr>`;
+    });
+    h += '</tbody></table></div>';
+  } else h += '<div class="sub">该日没有保存持仓明细（更早的记录可能只有汇总）。</div>';
+  el.innerHTML = h;
+}
+
+function renderPlanBriefBlocks(){
+  return [
+    renderBuyPlanCard(),
+    renderDcaQuoteCard(),
+    renderOppCard(),
+    renderMoversCard(),
+    renderBigNewsCard(),
+    renderPlanDisclaimer(),
+    renderAccountHoldingsCard(),
+    (S.hold.length || (num(S.settings.capitalUsd)>0) ? renderTrendCard(computePlan()).replace('<div class="card">','<div class="card rd">') : ''),
+    renderSltpWatchCard(),
+    ((S.hold.length || num(S.settings.capitalUsd)>0) ? renderDcaProgressCard('radar') : ''),
+    ((S.hold.length || num(S.settings.capitalUsd)>0) ? `<div class="card rd"><h2>满仓状态</h2>${renderFullPosToggle()}<div class="sub" style="margin-top:6px">满仓时，更好的机会只作为观察/替换建议展示，不会加入云端自选。</div></div>` : '')
+  ].filter(Boolean).join('');
+}
+
 function renderRadar(){
   const el = $('#tab-radar'); if(!el) return;
   const C = CLOUD, R = C && C.radar, H = [];
@@ -823,6 +1300,7 @@ function renderRadar(){
     if(!C.example && C.ai && !C.ai.ok) head += `<div class="warnbox">今日 AI 雷达没有生成成功：${esc(C.ai.error||'未知原因')}。${R?`下面的文字是 ${esc(C.radar_date||'之前')} 的旧内容。`:''}行情不受影响。</div>`;
   }
   H.push(`<div class="card rd">${head}</div>`);
+  try{ H.push(renderPlanBriefBlocks()); }catch(e){ console.warn(e); H.push('<div class="warnbox">交易计划区块渲染出错：'+esc(e.message||e)+'</div>'); }
 
   // 止损预警
   const A = S.settings.alert;
@@ -878,8 +1356,9 @@ function renderRadar(){
     }).filter(Boolean);
     if(srcItems.length) H.push('<div class="card rd"><details><summary class="sub">信息来源（'+srcItems.length+'）</summary><ul>' + srcItems.join('') + '</ul></details></div>');
   }
-  H.push('<div class="note">⚠️ 本页由 GitHub Pages 公开发布：云端只有自选代码、价格和 AI 新闻，<b>不含</b>你的持仓数量、成本和金额；这些只存在你自己的浏览器里（所以电脑和手机要各自录入，或用「设置→导出/导入」同步）。内容仅供学习与记录参考，不构成投资建议。</div>');
+  H.push('<div class="note">⚠️ 本页由 GitHub Pages 公开发布：云端只有自选代码、价格、买点缺口和 AI 新闻，<b>不含</b>你的持仓数量、成本和金额；这些只存在你自己的浏览器里（所以电脑和手机要各自录入，或用「设置→导出/导入」同步）。内容仅供学习与记录参考，不构成投资建议。</div>');
   el.innerHTML = H.join('');
+  if(curTab==='radar') requestAnimationFrame(() => { paintPlanChart(); bindPlanChartEvents(); renderChartDetail(); });
 }
 
 
@@ -897,11 +1376,12 @@ const HOLDINGS_INSTRUCTION = [
   '- qty：持有数量，必须是数字',
   '- cost：每股/每份成本价，使用该品种的计价货币。截图或用户未给出成本时，省略 cost 或设为 null，不要编造，也不要用现价代替',
   '- bucket：可选，“激进”或“保守”',
+  '- account：可选，“ZA”或“盈立”。默认 ZA=QQQM/SCHD，其余为盈立',
   '- name：可选',
   '如果本次不是在识别或更新持仓，不要输出 holdings-json 代码块。不要把该代码块包在其他代码块里。'
 ].join('\n');
 const HOLD_SHOT_PROMPT = '请识别这张券商/持仓截图中的持仓，并准备更新到我的持仓列表。请列出每只代码、名称、市场、数量和成本价；截图里没有成本价就不要编造。记得在回复末尾附加 holdings-json 代码块。';
-const ETF_AGG = /^(TQQQ|SQQQ|UPRO|SPXU|SOXL|SOXS|TNA|TZA|TECL|TECS|QLD|QID|SSO|SDS|UDOW|SDOW|TMF|TMV|LABU|LABD|FAS|FAZ|NUGT|DUST|JNUG|JDST|BOIL|KOLD|UVXY|SVXY|VXX|VIXY|SPXL|SPXS|TARK|CURE|DFEN|DUSL|NAIL|RETL|CWEB|YINN|YANG|FNGU|FNGD|BULZ|BERZ|AGQ|ZSL|UCO|SCO|GUSH|DRIP|TSLL|TSLQ|NVDL|NVDX|CONL|MSFU|GGLL|AAPU|AMDL|AMZU|BITX|ETHU|MSTU|MSTX)$/i;
+const ETF_AGG = /^(TQQQ|SQQQ|UPRO|SPXU|SOXL|SOXS|TNA|TZA|TECL|TECS|QLD|QID|SSO|SDS|UDOW|SDOW|TMF|TMV|LABU|LABD|FAS|FAZ|NUGT|DUST|JNUG|JDST|BOIL|KOLD|UVXY|SVXY|VXX|VIXY|SPXL|SPXS|TARK|CURE|DFEN|DUSL|NAIL|RETL|CWEB|YINN|YANG|FNGU|FNGD|BULZ|BERZ|AGQ|ZSL|UCO|SCO|GUSH|DRIP|TSLL|TSLQ|NVDL|NVDX|CONL|MSFU|GGLL|AAPU|AMDL|AMZU|BITX|ETHU|MSTU|MSTX|KORU|KORD)$/i;
 const ETF_CONS = /^(SPY|SPYM|VOO|IVV|VTI|ITOT|QQQ|QQQM|DIA|IWM|VEA|VWO|VXUS|IEFA|EFA|AGG|BND|BNDX|TLT|IEF|SHY|LQD|VCIT|VCSH|VGIT|BIV|GOVT|SGOV|BIL|MUB|SCHD|VIG|VYM|DVY|DGRO|SPYD|VT|VTV|QUAL|CSPX|VUAA|SPLG|IEI|SHV|VGSH|VTIP|TIP|GLD|IAU|SLV)$/i;
 const CN_CONS = /^(sh510050|sh510300|sh510310|sh510330|sh510500|sh512100|sh563300|sz159915|sz159919|sz159922|sz159941|sh513100|sh513110|sh513500|sz159649)$/i;
 
@@ -1055,7 +1535,17 @@ function recordPlanSnapshot(){
     cons: toUsd(p.consMv),
     mv: toUsd(p.mv),
     assets: toUsd(p.assets),
-    cost: toUsd(p.costAll)
+    cost: toUsd(p.costAll),
+    day: toUsd(p.day),
+    hold: (p.rows||[]).map(r => {
+      const {type,code} = splitKey(r.h.key);
+      return {
+        sym: showCode(type,code), name: r.h.name||'', account: holdAccount(r.h),
+        qty: r.h.qty, cost: r.h.cost, price: r.p?r.p.price:null,
+        mvUsd: toUsd(r.cv), plUsd: toUsd(Number.isFinite(r.cv)&&Number.isFinite(r.cc)?r.cv-r.cc:NaN),
+        dayUsd: toUsd(r.cd)
+      };
+    })
   };
   if(!Number.isFinite(snap.capital) && !Number.isFinite(snap.assets) && !Number.isFinite(snap.mv)) return false;
   const i = S.planHist.findIndex(x => x && x.date===snap.date);
@@ -1094,13 +1584,16 @@ function renderTrendCard(plan){
     ${hint}${latest}
     <div class="chart-wrap"><canvas id="planChart" width="320" height="210" aria-label="仓位走势图"></canvas>${n?'':'<div class="chart-empty">走势将显示在这里</div>'}</div>
     <div class="chart-leg">${leg}</div>
+    <div class="chart-tip" id="planChartDetail">点选图上的某一天，可查看当天持仓明细。曲线从总资金起点（默认 1500 美元）记起。</div>
     <div class="sub" style="margin-top:8px">走势只保存在本机浏览器，不会写入云端 data.json。${n?` <a href="#" data-act="planHistClear">清除走势记录</a>`:''}</div>
   </div>`;
 }
 function paintPlanChart(){
   const c = $('#planChart'); if(!c) return;
-  if(curTab!=='hold') return;
+  if(curTab!=='hold' && curTab!=='radar') return;
   drawPlanChart(c, S.planHist||[], S.settings.baseCur);
+  bindPlanChartEvents();
+  renderChartDetail();
 }
 function fmtAxis(n, cur){
   if(!Number.isFinite(n)) return '';
@@ -1134,6 +1627,7 @@ function drawPlanChart(canvas, hist, base){
   const toB = x => conv(x, 'USD', base);
   const pad = {l:52, r:10, t:12, b:28};
   const iw = Math.max(10, w-pad.l-pad.r), ih = Math.max(10, h-pad.t-pad.b);
+  CHART_LAYOUT = {w,h,pad,rows,xAt:null,base};
   if(!rows.length || !series.length){
     ctx.fillStyle = sub; ctx.font = '13px sans-serif'; ctx.textAlign='center';
     ctx.fillText('暂无数据', w/2, h/2);
@@ -1147,6 +1641,7 @@ function drawPlanChart(canvas, hist, base){
   if(ymin>0 && ymin < span*0.25) ymin = 0;
   const yAt = v => pad.t + (1-(v-ymin)/(ymax-ymin))*ih;
   const xAt = i => pad.l + (rows.length===1 ? iw/2 : i/(rows.length-1)*iw);
+  CHART_LAYOUT.xAt = xAt;
   ctx.strokeStyle = grid; ctx.lineWidth = 1;
   const ticks = 4;
   ctx.font = '11px sans-serif'; ctx.fillStyle = sub; ctx.textAlign='right'; ctx.textBaseline='middle';
@@ -1177,6 +1672,17 @@ function drawPlanChart(canvas, hist, base){
     ctx.fillStyle=s.color;
     pts.forEach(pt => { if(!pt) return; ctx.beginPath(); ctx.arc(pt.x,pt.y, rows.length===1?4:2.4, 0, Math.PI*2); ctx.fill(); });
   });
+  const sel = (CHART_SEL==null) ? rows.length-1 : CHART_SEL;
+  if(rows[sel] && Number.isInteger(sel)){
+    const x = xAt(sel);
+    ctx.strokeStyle = (cs.getPropertyValue('--accent')||'').trim() || '#2563eb';
+    ctx.setLineDash([3,3]); ctx.beginPath(); ctx.moveTo(x, pad.t); ctx.lineTo(x, pad.t+ih); ctx.stroke(); ctx.setLineDash([]);
+    const v = toB(rows[sel].assets);
+    if(Number.isFinite(v)){
+      ctx.fillStyle = (cs.getPropertyValue('--accent')||'').trim() || '#2563eb';
+      ctx.beginPath(); ctx.arc(x, yAt(v), 5, 0, Math.PI*2); ctx.fill();
+    }
+  }
 }
 
 
@@ -1264,7 +1770,11 @@ function parseHoldingsJson(raw){
     const costMissing = !explicitZero && !(cost>=0);
     const name = String(item.name || item.sname || item['名称'] || '');
     const bucket = mapBucket(item.bucket || item['分仓'] || item['仓位'], n.type, n.code, name);
-    return {ok:true, symbol:showCode(n.type,n.code), type:n.type, key:n.key, name, qty, cost: costMissing?0:cost, costMissing, bucket, market:market0};
+    let account = String(item.account || item['账户'] || '').trim();
+    if(account==='ZA'||account==='za') account='ZA';
+    else if(account==='盈立'||/ying/i.test(account)) account='盈立';
+    else account = defaultAccount({key:n.key});
+    return {ok:true, symbol:showCode(n.type,n.code), type:n.type, key:n.key, name, qty, cost: costMissing?0:cost, costMissing, bucket, account, market:market0};
   });
   if(!items.length) return {error:'列表为空', items:[]};
   return {items};
@@ -1290,9 +1800,11 @@ function readDraftEdits(card, items){
     const q = card && card.querySelector('[data-hold-qty="'+i+'"]');
     const c = card && card.querySelector('[data-hold-cost="'+i+'"]');
     const b = card && card.querySelector('[data-hold-bucket="'+i+'"]');
+    const a = card && card.querySelector('[data-hold-account="'+i+'"]');
     if(q){ const v=num(q.value); if(v>0){ next.qty=v; if(next.ok!==false) next.ok=true; } else if(next.ok){ next.ok=false; next.error='数量无效'; } }
     if(c){ const raw=c.value.trim(); if(raw===''){ /* keep missing */ } else { const v=num(c.value); if(v>=0){ next.cost=v; next.costMissing=false; } } }
     if(b && (b.value==='aggressive'||b.value==='conservative')) next.bucket=b.value;
+    if(a && (a.value==='ZA'||a.value==='盈立')) next.account=a.value;
     return next;
   });
 }
@@ -1307,7 +1819,9 @@ function draftToHolding(item, existing){
     qty: item.qty,
     cost: Number.isFinite(cost) ? cost : 0,
     stop: existing && existing.stop ? existing.stop : 0,
-    bucket: item.bucket || (existing && existing.bucket) || defaultBucket(item.type||type, code, item.name)
+    take: existing && existing.take ? existing.take : 0,
+    bucket: item.bucket || (existing && existing.bucket) || defaultBucket(item.type||type, code, item.name),
+    account: item.account || (existing && existing.account) || defaultAccount({key:item.key})
   };
 }
 function applyHoldingsDraft(mid, mode, card){
@@ -1332,6 +1846,7 @@ function applyHoldingsDraft(mid, mode, card){
   m.holdDraft.items = items;
   m.holdDraft.status = mode;
   m.holdDraft.applied = true;
+  items.forEach(it => { const s=planSymFromKey(it.key); if(PLAN_CORE[s] || PLAN_LEVERED.includes(s)) ensurePlan().bought[s]=true; });
   save(); renderAll(); renderChat(); refreshQuotes(true); showTab('hold');
   toast(mode==='overwrite'?'已覆盖全部持仓':'已合并更新持仓');
 }
@@ -1357,12 +1872,13 @@ function renderHoldingsPreview(m){
       <td><input data-hold-qty="${i}" type="number" step="any" inputmode="decimal" value="${it.qty??''}" style="width:88px" ${it.ok?'':'disabled'}></td>
       <td><input data-hold-cost="${i}" type="number" step="any" inputmode="decimal" value="${it.costMissing?'':(Number.isFinite(it.cost)?it.cost:'')}" placeholder="${it.costMissing?'未提供':''}" style="width:96px" ${it.ok?'':'disabled'}>${it.costMissing?'<div class="sub" style="color:var(--warn)">未提供</div>':''}</td>
       <td><select data-hold-bucket="${i}" style="width:auto" ${it.ok?'':'disabled'}><option value="aggressive"${it.bucket!=='conservative'?' selected':''}>激进仓</option><option value="conservative"${it.bucket==='conservative'?' selected':''}>保守仓</option></select></td>
+      <td><select data-hold-account="${i}" style="width:auto" ${it.ok?'':'disabled'}><option value="ZA"${it.account==='ZA'?' selected':''}>ZA</option><option value="盈立"${it.account!=='ZA'?' selected':''}>盈立</option></select></td>
     </tr>`;
   }).join('');
   return `<div class="hold-preview" data-mid="${esc(m.id)}">
     <h3>识别到 ${ok.length} 条持仓，确认后才会写入本机</h3>
     ${miss?`<div class="warnbox">有 ${miss} 条未提供成本价，已标出。可在写入前补填；留空则记为 0（合并时保留已有成本）。</div>`:''}
-    <div style="overflow:auto"><table class="tbl"><thead><tr><th>代码</th><th>市场</th><th>数量</th><th>成本价</th><th>分仓</th></tr></thead><tbody>${rows}</tbody></table></div>
+    <div style="overflow:auto"><table class="tbl"><thead><tr><th>代码</th><th>市场</th><th>数量</th><th>成本价（含费）</th><th>分仓</th><th>账户</th></tr></thead><tbody>${rows}</tbody></table></div>
     <div class="row">
       <button class="pri sm" data-act="holdApply" data-mode="overwrite" data-mid="${esc(m.id)}" ${ok.length?'':'disabled'}>覆盖全部持仓</button>
       <button class="sm" data-act="holdApply" data-mode="merge" data-mid="${esc(m.id)}" ${ok.length?'':'disabled'}>合并更新（同代码覆盖，其余保留）</button>
@@ -1378,10 +1894,10 @@ function computePortfolio(){
   const rows = S.hold.map(h => {
     const {type} = splitKey(h.key); const cur = CUR[type]; const p = priceOf(h.key);
     const cost0 = h.qty * h.cost; let val = NaN, pl = NaN, plp = NaN, dayPL = NaN;
-    if(p){ val = h.qty * p.price; pl = val - cost0; plp = cost0>0 ? pl/cost0*100 : NaN; if(p.prev>0) dayPL = h.qty*(p.price-p.prev); }
+    if(p){ val = h.qty * p.price; pl = val - cost0; plp = cost0>0 ? pl/cost0*100 : NaN; if(p.prev>0) dayPL = h.qty*(p.price-p.prev); else if(Number.isFinite(p.pct) && Number.isFinite(val)) dayPL = val - val/(1+p.pct/100); }
     const cv = conv(val,cur,base), cc = conv(cost0,cur,base), cd = conv(dayPL,cur,base);
     if(p && Number.isFinite(cv) && Number.isFinite(cc)){ mv += cv; cost += cc; if(Number.isFinite(cd)) day += cd; } else missing++;
-    return {h, cur, p, val, cost0, pl, plp, cv, cc};
+    return {h, cur, p, val, cost0, pl, plp, cv, cc, dayPL, cd};
   });
   return {rows, mv, cost, pl:mv-cost, plp: cost>0?(mv-cost)/cost*100:NaN, day, missing, base};
 }
@@ -1402,15 +1918,34 @@ function renderHold(){
   ${renderPlanCard(P)}
   ${renderTrendCard(P)}
   <div class="card"><h2>持仓明细 <span class="grow"></span><button class="pri sm" data-act="holdAdd">＋ 添加持仓</button></h2>
-  ${P.rows.length ? P.rows.map(r => { const l = quoteLine(r.h.key, r.h.name); const s=SYM[r.cur];
-    const bk = r.bucket==='conservative'?'<span class="badge cons">保守仓</span>':'<span class="badge agg">激进仓</span>';
-    return `<div class="item" data-act="holdEdit" data-id="${r.h.id}" style="align-items:flex-start"><div class="grow">
-      <div class="nm">${l.name}${l.badges}${bk}</div><div class="sub">${l.meta}</div>
-      <div class="sub">数量 ${fmtQty(r.h.qty)} · 成本 ${s}${fmt(r.h.cost)}</div>${l.err}</div>
-      <div class="px"><b>${r.p?fmtMoney(r.cv,b):'—'}</b><span class="${cls(r.pl)}">${r.p?fmtMoney(r.pl,r.cur)+' ('+fmtPct(r.plp)+')':'无价格'}</span>
-      <div class="sub">现价 ${r.p?s+fmt(r.p.price):'—'}</div></div></div>`; }).join('')
-    : '<div class="empty">还没有持仓。可点“添加持仓”手工填写，或到「AI」页用「截图识别持仓」确认后写入。</div>'}
-  </div>`;
+  <div class="sub">成本价含手续费。默认账户：ZA = QQQM、SCHD；盈立 = 其余美股/杠杆 ETF/NVDA 及现金。</div>
+  ${['ZA','盈立'].map(acc => {
+    const rs = P.rows.filter(r => holdAccount(r.h)===acc);
+    const body = rs.length ? rs.map(r => { const l = quoteLine(r.h.key, r.h.name); const s=SYM[r.cur];
+      const bk = r.bucket==='conservative'?'<span class="badge cons">保守仓</span>':'<span class="badge agg">激进仓</span>';
+      const dayp = r.p && Number.isFinite(r.p.pct) ? r.p.pct : NaN;
+      return `<div class="item" data-act="holdEdit" data-id="${r.h.id}" style="align-items:flex-start"><div class="grow">
+        <div class="nm">${l.name}${l.badges}${bk}<span class="badge">${esc(acc)}</span></div><div class="sub">${l.meta}</div>
+        <div class="sub">数量 ${fmtQty(r.h.qty)} · 成本（含费） ${s}${fmt(r.h.cost)}</div>${l.err}</div>
+        <div class="px"><b>${r.p?fmtMoney(r.cv,b):'—'}</b>
+        <div class="sub">当日 <span class="${cls(r.cd)}">${Number.isFinite(r.cd)?fmtMoney(r.cd,b):'—'}${Number.isFinite(dayp)?' · '+fmtPct(dayp):''}</span></div>
+        <span class="${cls(r.pl)}">累计 ${r.p?fmtMoney(r.pl,r.cur)+' ('+fmtPct(r.plp)+')':'无价格'}</span>
+        <div class="sub">现价 ${r.p?s+fmt(r.p.price):'—'}</div></div></div>`; }).join('')
+      : '<div class="sub" style="padding:8px 0">该账户暂无持仓。</div>';
+    const extra = acc==='盈立' ? `<div class="sub">现金 ${fmtMoney(P.cash,b)}（总资金 − 持仓总成本）</div>` : '';
+    return `<div class="acct-h"><b>${acc}</b></div>${extra}${body}`;
+  }).join('')}
+  ${P.rows.length?'': '<div class="empty">还没有持仓。可点“添加持仓”手工填写，或到「AI」页用「截图识别持仓」确认后写入。</div>'}
+  ${(() => { const start=P.capUsd, assetsUsd=conv(P.assets,b,'USD'), ret=(Number.isFinite(assetsUsd)&&start>0)?(assetsUsd/start-1)*100:NaN;
+    return `<div class="sum" style="margin-top:10px">
+      <div><span class="sub">总资产</span><b>${fmtMoney(P.assets,b)}</b></div>
+      <div><span class="sub">相对 ${fmtMoney(start,'USD')} 起点</span><b class="${cls(ret)}">${fmtPct(ret)}</b></div>
+      <div><span class="sub">当日盈亏</span><b class="${cls(P.day)}">${fmtMoney(P.day,b)}</b></div>
+    </div>`; })()}
+  </div>
+  ${renderSltpWatchCard()}
+  ${renderDcaProgressCard('hold')}
+  <div class="card"><h2>满仓状态</h2>${renderFullPosToggle()}<div class="sub" style="margin-top:6px">满仓时，更好的机会只作为观察/替换建议展示，不会加入云端自选。</div></div>`;
   $('#baseCur').value = b;
   if(curTab==='hold') requestAnimationFrame(paintPlanChart);
 }
@@ -1469,6 +2004,8 @@ function renderSet(){
     <label class="f">事件提前提醒</label><select id="sLead"><option value="0">准时</option><option value="1">提前 1 小时</option><option value="24">提前 1 天</option><option value="72">提前 3 天</option></select>
   </div>
   ${planSettingsCard('s')}
+  ${renderDcaProgressCard('set')}
+  <div class="card"><h2>满仓状态</h2>${renderFullPosToggle()}<div class="sub" style="margin-top:6px">也可按资金规划自动判断（现金所剩无几或成本已达总资金）。</div></div>
   <div class="card"><h2>止损预警（只在本机计算）</h2>
     <label class="row" style="gap:8px"><input type="checkbox" id="alOn" ${st.alert.on?'checked':''}> 开启预警</label>
     <label class="f">相对成本亏损达到（%）</label><input id="alLoss" type="number" step="any" inputmode="decimal" value="${st.alert.lossPct}">
@@ -1808,6 +2345,7 @@ dlg.addEventListener('click', async e => {
   if(b.dataset.d==='x') dlg.close();
   else if(b.dataset.d==='ok'){ try{ const r = await dlg._ok(); if(r!==false) dlg.close(); }catch(err){ toast(err.message||String(err)); } }
   else if(b.dataset.d==='del'){ if(confirm('确定删除？')){ dlg._del && dlg._del(); dlg.close(); } }
+  else if(b.dataset.d==='clear'){ dlg._clear && dlg._clear(); dlg.close(); }
 });
 
 /* ============ 动作 ============ */
@@ -1854,7 +2392,34 @@ document.addEventListener('click', async e => {
   const h = ACTIONS[act]; if(h) await h(a);
 });
 
+function applyOpportunity(i, mode){
+  const P = planCloud(); const o = (P && P.opportunities || [])[i];
+  if(!o || !o.ticker) return;
+  if(isFullPosition()){ toast('当前视为满仓，该建议只作观察，不会加入云端自选或本机自选'); return; }
+  let n;
+  try{ n = normalize('us', o.ticker); }
+  catch(e){ toast('无法识别代码：'+(e.message||e)); return; }
+  if(mode==='replace' && o.vs){
+    const vs = canonPlanSym(o.vs);
+    if(!confirm('用 '+n.code+' 在本机观察列表中替换 '+vs+'？不会改云端 config.json。')) return;
+    S.watch = (S.watch||[]).filter(w => planSymFromKey(w.key)!==vs);
+    ensurePlan().swap = { replace:vs, with_ticker:n.code, with_name:o.name||'', tranches:o.tranches||[], buy_point:(o.tranches||[])[0], stop_loss:o.stop_loss, take_profit:o.take_profit, why:o.why||'' };
+  }
+  if(!(S.watch||[]).some(w => w.key===n.key)){
+    S.watch.push({id:uid(), key:n.key, type:n.type, name:o.name||n.name||''});
+  }
+  const obs = ensurePlan().observe||[];
+  if(!obs.some(x => canonPlanSym(x.ticker)===n.code)) ensurePlan().observe = obs.concat([{ticker:n.code, name:o.name||'', vs:o.vs||'', added:todayKey()}]);
+  if(o.stop_loss>0 || o.take_profit>0){
+    const cur = ensurePlan().sltp[n.code]||{};
+    if(!(cur.sl>0) && o.stop_loss>0) cur.sl = o.stop_loss;
+    if(!(cur.tp>0) && o.take_profit>0) cur.tp = o.take_profit;
+    ensurePlan().sltp[n.code] = cur;
+  }
+  save(); renderAll(); refreshQuotes(true); toast(mode==='replace'?'已在本机替换观察标的':'已加入本机观察（不会写入云端自选）');
+}
 const ACTIONS = {
+
   refresh: () => refreshQuotes(false),
   theme: () => { const order=['auto','light','dark']; S.settings.theme = order[(order.indexOf(S.settings.theme)+1)%3]; save(); applyTheme(); toast('主题：'+{auto:'跟随系统',light:'浅色',dark:'深色'}[S.settings.theme]); },
   watchAdd: async () => {
@@ -1960,7 +2525,42 @@ const ACTIONS = {
       });
   },
   pwLock: () => { if(!confirm('锁定后，下次在这台设备打开需要重新输入密码。确定？')) return; forgetUnlock(); location.reload(); },
-  wipe: () => { if(confirm('将清除本机所有数据（自选、持仓、事件、密钥、对话）。确定？') && confirm('再确认一次：此操作不可恢复。')){ localStorage.removeItem(LS); localStorage.removeItem(LSK); location.reload(); } }
+  wipe: () => { if(confirm('将清除本机所有数据（自选、持仓、事件、密钥、对话）。确定？') && confirm('再确认一次：此操作不可恢复。')){ localStorage.removeItem(LS); localStorage.removeItem(LSK); location.reload(); } },
+  planBuy: a => { const s=canonPlanSym(a.dataset.sym); if(!s) return; markBought(s,true); toast('已标记 '+s+' 为已买入（只存在本机）'); },
+  planUnbuy: a => { const s=canonPlanSym(a.dataset.sym); if(!s) return; if(markBought(s,false)) toast('已取消 '+s+' 的已买入标记'); },
+  sltpEdit: a => {
+    const s=canonPlanSym(a.dataset.sym); if(!s) return;
+    const t0=sltpOf(s);
+    openDlg(s+' 止盈止损参考',
+      `<div class="sub">未买入前也可填写，仅作参考，不是下单指令。留空则继续使用 AI 参考价${t0.refSl||t0.refTp?'（当前参考：止损 '+(t0.refSl?fmt(t0.refSl):'—')+'，止盈 '+(t0.refTp?fmt(t0.refTp):'—')+'）':''}。</div>
+       <label class="f">止损价（美元）</label><input id="slV" type="number" step="any" inputmode="decimal" value="${t0.custom&&t0.sl>0?t0.sl:''}" placeholder="${t0.refSl>0?t0.refSl:''}">
+       <label class="f">止盈价（美元）</label><input id="tpV" type="number" step="any" inputmode="decimal" value="${t0.custom&&t0.tp>0?t0.tp:''}" placeholder="${t0.refTp>0?t0.refTp:''}">
+       <div class="sub" style="margin-top:6px">触及后会提醒整笔卖出，不要拆单。</div>`,
+      '保存', () => {
+        const sl=num($('#slV').value), tp=num($('#tpV').value);
+        const o=ensurePlan().sltp[s]||{};
+        if(sl>0) o.sl=sl; else delete o.sl;
+        if(tp>0) o.tp=tp; else delete o.tp;
+        if(o.sl||o.tp) ensurePlan().sltp[s]=o; else delete ensurePlan().sltp[s];
+        const h=S.hold.find(x=>planSymFromKey(x.key)===s);
+        if(h){ if(sl>0) h.stop=sl; if(tp>0) h.take=tp; }
+        save(); renderAll();
+      },
+      `<button class="sm" data-d="clear">清除我的覆盖（改回 AI 参考）</button>`);
+    dlg._clear = () => { delete ensurePlan().sltp[s]; save(); renderAll(); toast('已改回 AI 参考价'); };
+  },
+  fullPosToggle: () => {
+    const p=ensurePlan();
+    if(isFullPosition() && p.fullPos!==false){ p.fullPos=false; toast('已取消满仓标记（若成本再次达到总资金，仍会按满仓判断）'); }
+    else { p.fullPos=true; toast('已标记满仓：更好的机会只展示，不会加入云端自选'); }
+    save(); renderAll();
+  },
+  oppAdd: a => applyOpportunity(+a.dataset.i, 'add'),
+  oppReplace: a => applyOpportunity(+a.dataset.i, 'replace'),
+  oppIgnore: a => {
+    const P=planCloud(); const o=(P&&P.opportunities||[])[+a.dataset.i];
+    if(!o) return; ensurePlan().ignoredOpp=oppKey(o); save(); renderRadar(); toast('已忽略该建议');
+  }
 
 };
 const symStates = {};
@@ -1973,21 +2573,28 @@ function holdDialog(h){
   openDlg(isNew?'添加持仓':'编辑持仓',
     (isNew ? `<label class="f">品种</label>${symInput('hAdd')}` : `<div><b>${esc(nameOf(key,h.name))}</b> <span class="sub">${esc(TYPES[t.type])} · ${esc(showCode(t.type,t.code))}</span></div>`) +
     `<label class="f">数量（份/股/个）</label><input id="hQ" type="number" step="any" inputmode="decimal" value="${h?h.qty:''}">
-     <label class="f">成本价（每单位${t?'，'+CUR[t.type]:'，按该品种的计价货币'}）</label><input id="hC" type="number" step="any" inputmode="decimal" value="${h?h.cost:''}">
+     <label class="f">成本价（含手续费，每单位${t?'，'+CUR[t.type]:'，按该品种的计价货币'}）</label><input id="hC" type="number" step="any" inputmode="decimal" value="${h?h.cost:''}">
      <label class="f">分仓</label><select id="hB"><option value="auto">自动（按品种判断）</option><option value="aggressive">激进仓</option><option value="conservative">保守仓</option></select>
      <div class="sub">杠杆 ETF、个股默认激进仓；宽基指数、债券/红利类默认保守仓，可改。</div>
-     <label class="f">止损价（可选，跌到这个价格时在「雷达」里提醒；留空不用）</label><input id="hS" type="number" step="any" inputmode="decimal" value="${h&&h.stop?h.stop:''}">
+     <label class="f">账户</label><select id="hAcc"><option value="ZA">ZA</option><option value="盈立">盈立</option></select>
+     <div class="sub">默认 ZA = QQQM、SCHD；盈立 = BRK.B、杠杆 ETF、NVDA 及其他。</div>
+     <label class="f">止损价（可选；杠杆 ETF / NVDA 建议填写。留空则用雷达里的 AI 参考价）</label><input id="hS" type="number" step="any" inputmode="decimal" value="${h&&h.stop?h.stop:''}">
+     <label class="f">止盈价（可选；触及提醒整笔卖出，不要拆单）</label><input id="hT" type="number" step="any" inputmode="decimal" value="${h&&h.take?h.take:''}">
      ${!isNew?`<label class="f">手动价格（仅行情失败时使用，留空不用）</label><input id="hP" type="number" step="any" inputmode="decimal" value="${S.manual[key]?S.manual[key].price:''}">`:''}
      <div class="sub" style="margin-top:6px">计价货币：A股/基金=人民币，港股=港币，美股/加密=美元（加密按 USDT 计）。</div>`,
     '保存', () => {
       const qty = num($('#hQ').value), cost = num($('#hC').value);
       if(!(qty>0)) throw new Error('请填写数量'); if(!(cost>=0)) throw new Error('请填写成本价');
       const pickB = () => { const v = $('#hB').value; return (v==='aggressive'||v==='conservative') ? v : ''; };
+      const acc = ($('#hAcc') && $('#hAcc').value==='ZA') ? 'ZA' : '盈立';
+      const stop = (num($('#hS').value)>0?num($('#hS').value):0), take = (num($('#hT').value)>0?num($('#hT').value):0);
+      const syncSltp = (sym) => { if(!(PLAN_CORE[sym]||PLAN_LEVERED.includes(sym))) return; const o=ensurePlan().sltp[sym]||{}; if(stop>0) o.sl=stop; if(take>0) o.tp=take; if(stop>0||take>0) ensurePlan().sltp[sym]=o; ensurePlan().bought[sym]=true; };
       if(isNew){ const n = bindSymState('hAdd').get(); const bucket = pickB() || defaultBucket(n.type, n.code, n.name);
-        S.hold.push({id:uid(), key:n.key, type:n.type, name:n.name||'', qty, cost, stop:(num($('#hS').value)>0?num($('#hS').value):0), bucket}); save(); renderAll(); refreshQuotes(true); }
-      else { h.qty = qty; h.cost = cost; h.stop = (num($('#hS').value)>0?num($('#hS').value):0); h.bucket = pickB() || defaultBucket(t.type, t.code, h.name); const p = num($('#hP').value); if(p>0) S.manual[key]={price:p}; else delete S.manual[key]; save(); renderAll(); }
+        S.hold.push({id:uid(), key:n.key, type:n.type, name:n.name||'', qty, cost, stop, take, bucket, account:acc}); syncSltp(planSymFromKey(n.key)); save(); renderAll(); refreshQuotes(true); }
+      else { h.qty = qty; h.cost = cost; h.stop = stop; h.take = take; h.bucket = pickB() || defaultBucket(t.type, t.code, h.name); h.account = acc; const p = num($('#hP').value); if(p>0) S.manual[key]={price:p}; else delete S.manual[key]; syncSltp(planSymFromKey(h.key)); save(); renderAll(); }
     }, isNew?'':`<button class="dang" data-d="del">删除</button>`);
   if($('#hB')) $('#hB').value = (!isNew && (h.bucket==='aggressive'||h.bucket==='conservative')) ? h.bucket : (isNew ? 'auto' : holdBucket(h));
+  if($('#hAcc')) $('#hAcc').value = holdAccount(isNew?{key:''}:h);
   if(!isNew) dlg._del = () => { S.hold = S.hold.filter(x=>x.id!==h.id); save(); renderAll(); };
   else bindSymState('hAdd');
 }
@@ -1996,6 +2603,13 @@ function holdDialog(h){
 document.addEventListener('change', e => {
   const t = e.target;
   if(t.id==='baseCur'){ S.settings.baseCur = t.value; save(); renderHold(); }
+  else if(t.dataset && t.dataset.dcaSym && t.dataset.dcaK){
+    const sym=t.dataset.dcaSym, k=t.dataset.dcaK;
+    ensurePlan(); if(!S.plan.dca[sym]) S.plan.dca[sym]={planned:0,done:0,nextDate:'',amount:''};
+    if(k==='nextDate') S.plan.dca[sym][k]=t.value;
+    else { const v=num(t.value); S.plan.dca[sym][k]=Number.isFinite(v)?v:''; }
+    save(); return;
+  }
   else if(applyPlanField(t)){ return; }
   else if(t.id==='sTheme'){ S.settings.theme = t.value; save(); applyTheme(); }
   else if(t.id==='sUp'){ S.settings.upColor = t.value; save(); applyTheme(); }
