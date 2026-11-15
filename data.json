@@ -1,44 +1,40 @@
 {
   "example": false,
   "schema": 2,
-  "updated_at": "2026-11-14T10:54:55Z",
-  "updated_at_beijing": "2026-11-14 18:54",
+  "updated_at": "2026-11-15T06:17:16Z",
+  "updated_at_beijing": "2026-11-15 14:17",
   "watchlist": [
-    "SPYM",
-    "QQQM",
-    "TQQQ",
-    "SOXL",
     "NVDA",
     "ADBE",
     "BRK-B",
-    "KORU"
+    "TQQQ",
+    "SOXL",
+    "KORU",
+    "QQQM",
+    "SCHD"
   ],
   "names": {
-    "SPYM": "SPDR 标普500 ETF",
-    "QQQM": "纳指100 ETF",
+    "NVDA": "英伟达",
+    "ADBE": "Adobe",
+    "BRK-B": "伯克希尔B",
     "TQQQ": "纳指3倍做多",
     "SOXL": "半导体3倍做多",
-    "NVDA": "英伟达"
+    "KORU": "韩国3倍做多",
+    "QQQM": "纳指100 ETF（定投）",
+    "SCHD": "红利 ETF（定投）"
   },
   "prices": {
-    "SPYM": {
-      "price": 88.77,
-      "close": 88.77,
-      "prev_close": 89.13,
-      "change_pct": -0.4,
-      "date": "2026-11-13",
-      "currency": "USD",
-      "price_label": "收盘"
-    },
     "NVDA": {
-      "price": 161.01,
+      "price": 162.85,
       "close": 162.85,
       "prev_close": 166.19,
-      "change_pct": -3.12,
+      "change_pct": -2.01,
       "date": "2026-11-13",
       "currency": "USD",
-      "price_label": "盘后",
+      "price_label": "收盘",
       "extended_price": 161.01,
+      "ext_label": "盘后",
+      "ext_change_pct": -1.13,
       "high_52w": 243.37,
       "low_52w": 148.8,
       "high_3m": 243.37,
@@ -48,14 +44,16 @@
       "atr14": 11.005
     },
     "ADBE": {
-      "price": 241.95,
+      "price": 243.08,
       "close": 243.08,
       "prev_close": 238.54,
-      "change_pct": 1.43,
+      "change_pct": 1.9,
       "date": "2026-11-13",
       "currency": "USD",
-      "price_label": "盘后",
+      "price_label": "收盘",
       "extended_price": 241.95,
+      "ext_label": "盘后",
+      "ext_change_pct": -0.46,
       "high_52w": 362.71,
       "low_52w": 190.12,
       "high_3m": 294.53,
@@ -65,14 +63,16 @@
       "atr14": 7.8357
     },
     "BRK.B": {
-      "price": 592.3,
+      "price": 592.94,
       "close": 592.94,
       "prev_close": 589.83,
-      "change_pct": 0.42,
+      "change_pct": 0.53,
       "date": "2026-11-13",
       "currency": "USD",
-      "price_label": "盘后",
+      "price_label": "收盘",
       "extended_price": 592.3,
+      "ext_label": "盘后",
+      "ext_change_pct": -0.11,
       "high_52w": 596.92,
       "low_52w": 464.01,
       "high_3m": 596.92,
@@ -82,14 +82,16 @@
       "atr14": 11.3521
     },
     "BRK-B": {
-      "price": 592.3,
+      "price": 592.94,
       "close": 592.94,
       "prev_close": 589.83,
-      "change_pct": 0.42,
+      "change_pct": 0.53,
       "date": "2026-11-13",
       "currency": "USD",
-      "price_label": "盘后",
+      "price_label": "收盘",
       "extended_price": 592.3,
+      "ext_label": "盘后",
+      "ext_change_pct": -0.11,
       "high_52w": 596.92,
       "low_52w": 464.01,
       "high_3m": 596.92,
@@ -99,14 +101,16 @@
       "atr14": 11.3521
     },
     "TQQQ": {
-      "price": 56.2901,
+      "price": 57.68,
       "close": 57.68,
       "prev_close": 59.88,
-      "change_pct": -6.0,
+      "change_pct": -3.67,
       "date": "2026-11-13",
       "currency": "USD",
-      "price_label": "盘后",
+      "price_label": "收盘",
       "extended_price": 56.2901,
+      "ext_label": "盘后",
+      "ext_change_pct": -2.41,
       "high_52w": 88.09,
       "low_52w": 37.32,
       "high_3m": 85.32,
@@ -116,31 +120,36 @@
       "atr14": 4.89
     },
     "SOXL": {
-      "price": 55.68,
+      "price": 58.32,
       "close": 58.32,
       "prev_close": 65.53,
-      "change_pct": -15.03,
+      "change_pct": -11.0,
       "date": "2026-11-13",
       "currency": "USD",
-      "price_label": "盘后",
+      "price_label": "收盘",
       "extended_price": 55.68,
+      "ext_label": "盘后",
+      "ext_change_pct": -4.53,
       "high_52w": 302.0,
       "low_52w": 28.12,
       "high_3m": 169.83,
       "low_3m": 40.59,
       "high_20d": 108.6,
       "low_20d": 40.59,
-      "atr14": 13.3007
+      "atr_suspect": true,
+      "range_note": "ATR14 占现价 23%，超过合理范围，已忽略，技术参考改用估算波动。"
     },
     "KORU": {
-      "price": 7.45,
+      "price": 7.68,
       "close": 7.68,
       "prev_close": 8.12,
-      "change_pct": -8.25,
+      "change_pct": -5.42,
       "date": "2026-11-13",
       "currency": "USD",
-      "price_label": "盘后",
+      "price_label": "收盘",
       "extended_price": 7.45,
+      "ext_label": "盘后",
+      "ext_change_pct": -2.99,
       "high_52w": 63.985,
       "low_52w": 6.284,
       "high_3m": 25.37,
@@ -150,14 +159,16 @@
       "atr14": 1.5314
     },
     "QQQM": {
-      "price": 277.7999,
+      "price": 279.97,
       "close": 279.97,
       "prev_close": 283.39,
-      "change_pct": -1.97,
+      "change_pct": -1.21,
       "date": "2026-11-13",
       "currency": "USD",
-      "price_label": "盘后",
+      "price_label": "收盘",
       "extended_price": 277.7999,
+      "ext_label": "盘后",
+      "ext_change_pct": -0.78,
       "high_52w": 314.115,
       "low_52w": 228.75,
       "high_3m": 314.115,
@@ -167,14 +178,16 @@
       "atr14": 7.5664
     },
     "SCHD": {
-      "price": 36.0799,
+      "price": 36.12,
       "close": 36.12,
       "prev_close": 35.93,
-      "change_pct": 0.42,
+      "change_pct": 0.53,
       "date": "2026-11-13",
       "currency": "USD",
-      "price_label": "盘后",
+      "price_label": "收盘",
       "extended_price": 36.0799,
+      "ext_label": "盘后",
+      "ext_change_pct": -0.11,
       "high_52w": 36.38,
       "low_52w": 26.6,
       "high_3m": 36.38,
@@ -218,7 +231,7 @@
     }
   },
   "fx": {
-    "USDCNY": 6.6849,
+    "USDCNY": 6.6897,
     "USDHKD": 7.846,
     "source": "open.er-api.com"
   },
@@ -231,12 +244,13 @@
         "yf": "NVDA",
         "name": "英伟达",
         "kind": "nvda",
-        "price": 161.01,
+        "price": 162.85,
         "close": 162.85,
         "extended_price": 161.01,
-        "price_label": "盘后",
+        "ext_label": "盘后",
+        "price_label": "收盘",
         "prev_close": 166.19,
-        "change_pct": -3.12,
+        "change_pct": -2.01,
         "date": "2026-11-13",
         "currency": "USD",
         "stale": false,
@@ -249,8 +263,8 @@
         ],
         "watch_only": true,
         "nearest_level": 150.0,
-        "gap_price": 11.01,
-        "gap_pct": 7.34,
+        "gap_price": 12.85,
+        "gap_pct": 7.89,
         "touched_now": [],
         "newly_touched": [],
         "at_buy": false,
@@ -262,6 +276,12 @@
         "high_20d": 222.19,
         "low_20d": 148.8,
         "atr14": 11.005,
+        "atr_suspect": false,
+        "data_note": "",
+        "ext_change_pct": -1.13,
+        "fixed_sl": null,
+        "fixed_tp": [],
+        "fixed_asof": "",
         "swapped_in": false,
         "swap_from": "",
         "added": "",
@@ -277,7 +297,7 @@
         ],
         "ref_sl": 93.49,
         "ref_tp": 197.28,
-        "sl_tp_reason": "技术参考（本地按历史价格计算，非 AI/新闻）：ATR14≈11.01；近三月低/高 148.80/243.37；近一年低/高 148.80/243.37。止损=最深买点下约 1.5 倍 ATR（并避开近期低点），止盈=阶梯均价上方阻力或约 3 倍 ATR。",
+        "sl_tp_reason": "技术参考（本地按历史价格算，非 AI/新闻）：基准=买点梯子（最深 110.00）；ATR14≈11.01；近三月低/高 148.80/243.37。止损=93.49（基准最低价下 1.5×ATR），止盈=197.28（近三月高点（限在均价上 2~6×ATR））。",
         "sl_tp_url": "",
         "notes": [
           "在 2026-11-18 财报前只看不买；财报后再按 150 / 140 / 125 / 110 提醒。"
@@ -290,12 +310,13 @@
         "yf": "BRK-B",
         "name": "伯克希尔B",
         "kind": "brk",
-        "price": 592.3,
+        "price": 592.94,
         "close": 592.94,
         "extended_price": 592.3,
-        "price_label": "盘后",
+        "ext_label": "盘后",
+        "price_label": "收盘",
         "prev_close": 589.83,
-        "change_pct": 0.42,
+        "change_pct": 0.53,
         "date": "2026-11-13",
         "currency": "USD",
         "stale": false,
@@ -306,12 +327,12 @@
         ],
         "watch_only": false,
         "nearest_level": 560.0,
-        "gap_price": 32.3,
-        "gap_pct": 5.77,
+        "gap_price": 32.94,
+        "gap_pct": 5.56,
         "touched_now": [],
         "newly_touched": [],
         "at_buy": false,
-        "sort_gap_pct": 5.7679,
+        "sort_gap_pct": 5.5554,
         "high_52w": 596.92,
         "low_52w": 464.01,
         "high_3m": 596.92,
@@ -319,6 +340,12 @@
         "high_20d": 596.92,
         "low_20d": 528.84,
         "atr14": 11.3521,
+        "atr_suspect": false,
+        "data_note": "",
+        "ext_change_pct": -0.11,
+        "fixed_sl": null,
+        "fixed_tp": [],
+        "fixed_asof": "",
         "swapped_in": false,
         "swap_from": "",
         "added": "",
@@ -334,60 +361,7 @@
         ],
         "ref_sl": 490.0,
         "ref_tp": 596.92,
-        "sl_tp_reason": "技术参考（本地按历史价格计算，非 AI/新闻）：ATR14≈11.35；近三月低/高 495.68/596.92；近一年低/高 464.01/596.92。止损=最深买点下约 1.5 倍 ATR（并避开近期低点），止盈=阶梯均价上方阻力或约 3 倍 ATR。",
-        "sl_tp_url": "",
-        "notes": [],
-        "sl_tp_source": "technical",
-        "sl_tp_stale": false
-      },
-      {
-        "symbol": "KORU",
-        "yf": "KORU",
-        "name": "韩国3倍做多",
-        "kind": "levered",
-        "price": 7.45,
-        "close": 7.68,
-        "extended_price": 7.45,
-        "price_label": "盘后",
-        "prev_close": 8.12,
-        "change_pct": -8.25,
-        "date": "2026-11-13",
-        "currency": "USD",
-        "stale": false,
-        "error": null,
-        "levels": [
-          7,
-          6.5
-        ],
-        "watch_only": false,
-        "nearest_level": 7.0,
-        "gap_price": 0.45,
-        "gap_pct": 6.43,
-        "touched_now": [],
-        "newly_touched": [],
-        "at_buy": false,
-        "sort_gap_pct": 6.4286,
-        "high_52w": 63.985,
-        "low_52w": 6.284,
-        "high_3m": 25.37,
-        "low_3m": 6.46,
-        "high_20d": 13.89,
-        "low_20d": 6.46,
-        "atr14": 1.5314,
-        "swapped_in": false,
-        "swap_from": "",
-        "added": "",
-        "extra_tranches": [
-          4.97
-        ],
-        "tranche_levels": [
-          7,
-          6.5,
-          4.97
-        ],
-        "ref_sl": 4.2,
-        "ref_tp": 15.94,
-        "sl_tp_reason": "技术参考（本地按历史价格计算，非 AI/新闻）：ATR14≈1.53；近三月低/高 6.46/25.37；近一年低/高 6.28/63.98。止损=最深买点下约 1.5 倍 ATR（并避开近期低点），止盈=阶梯均价上方阻力或约 3 倍 ATR。",
+        "sl_tp_reason": "技术参考（本地按历史价格算，非 AI/新闻）：基准=买点梯子（最深 530.00）；ATR14≈11.35；近三月低/高 495.68/596.92。止损=490.00（近三月低点下 0.5×ATR），止盈=596.92（近三月高点（限在均价上 2~6×ATR））。",
         "sl_tp_url": "",
         "notes": [],
         "sl_tp_source": "technical",
@@ -398,12 +372,13 @@
         "yf": "ADBE",
         "name": "Adobe",
         "kind": "stock",
-        "price": 241.95,
+        "price": 243.08,
         "close": 243.08,
         "extended_price": 241.95,
-        "price_label": "盘后",
+        "ext_label": "盘后",
+        "price_label": "收盘",
         "prev_close": 238.54,
-        "change_pct": 1.43,
+        "change_pct": 1.9,
         "date": "2026-11-13",
         "currency": "USD",
         "stale": false,
@@ -415,12 +390,12 @@
         ],
         "watch_only": false,
         "nearest_level": 225.0,
-        "gap_price": 16.95,
-        "gap_pct": 7.53,
+        "gap_price": 18.08,
+        "gap_pct": 7.44,
         "touched_now": [],
         "newly_touched": [],
         "at_buy": false,
-        "sort_gap_pct": 7.5333,
+        "sort_gap_pct": 7.4379,
         "high_52w": 362.71,
         "low_52w": 190.12,
         "high_3m": 294.53,
@@ -428,6 +403,12 @@
         "high_20d": 272.1,
         "low_20d": 231.82,
         "atr14": 7.8357,
+        "atr_suspect": false,
+        "data_note": "",
+        "ext_change_pct": -0.46,
+        "fixed_sl": null,
+        "fixed_tp": [],
+        "fixed_asof": "",
         "swapped_in": false,
         "swap_from": "",
         "added": "",
@@ -442,7 +423,7 @@
         ],
         "ref_sl": 178.25,
         "ref_tp": 253.68,
-        "sl_tp_reason": "技术参考（本地按历史价格计算，非 AI/新闻）：ATR14≈7.84；近三月低/高 224.67/294.53；近一年低/高 190.12/362.71。止损=最深买点下约 1.5 倍 ATR（并避开近期低点），止盈=阶梯均价上方阻力或约 3 倍 ATR。",
+        "sl_tp_reason": "技术参考（本地按历史价格算，非 AI/新闻）：基准=买点梯子（最深 190.00）；ATR14≈7.84；近三月低/高 224.67/294.53。止损=178.25（基准最低价下 1.5×ATR），止盈=253.68（近三月高点（限在均价上 2~6×ATR））。",
         "sl_tp_url": "",
         "notes": [
           "财报约北京时间 2026-12-10 早上。"
@@ -451,16 +432,80 @@
         "sl_tp_stale": false
       },
       {
+        "symbol": "KORU",
+        "yf": "KORU",
+        "name": "韩国3倍做多",
+        "kind": "levered",
+        "price": 7.68,
+        "close": 7.68,
+        "extended_price": 7.45,
+        "ext_label": "盘后",
+        "price_label": "收盘",
+        "prev_close": 8.12,
+        "change_pct": -5.42,
+        "date": "2026-11-13",
+        "currency": "USD",
+        "stale": false,
+        "error": null,
+        "levels": [
+          7,
+          6.5
+        ],
+        "watch_only": false,
+        "nearest_level": 7.0,
+        "gap_price": 0.68,
+        "gap_pct": 8.85,
+        "touched_now": [],
+        "newly_touched": [],
+        "at_buy": false,
+        "sort_gap_pct": 8.8542,
+        "high_52w": 63.985,
+        "low_52w": 6.284,
+        "high_3m": 25.37,
+        "low_3m": 6.46,
+        "high_20d": 13.89,
+        "low_20d": 6.46,
+        "atr14": 1.5314,
+        "atr_suspect": false,
+        "data_note": "",
+        "ext_change_pct": -2.99,
+        "fixed_sl": 6.0,
+        "fixed_tp": [
+          8.5,
+          10.5
+        ],
+        "fixed_asof": "2026-11-14",
+        "swapped_in": false,
+        "swap_from": "",
+        "added": "",
+        "extra_tranches": [
+          4.97
+        ],
+        "tranche_levels": [
+          7,
+          6.5,
+          4.97
+        ],
+        "ref_sl": 4.2,
+        "ref_tp": 15.94,
+        "sl_tp_reason": "技术参考（本地按历史价格算，非 AI/新闻）：基准=买点梯子（最深 6.50）；ATR14≈1.53；近三月低/高 6.46/25.37。止损=4.20（基准最低价下 1.5×ATR），止盈=15.94（近三月高点（限在均价上 2~6×ATR））。",
+        "sl_tp_url": "",
+        "notes": [],
+        "sl_tp_source": "technical",
+        "sl_tp_stale": false
+      },
+      {
         "symbol": "TQQQ",
         "yf": "TQQQ",
         "name": "纳指3倍做多",
         "kind": "levered",
-        "price": 56.2901,
+        "price": 57.68,
         "close": 57.68,
         "extended_price": 56.2901,
-        "price_label": "盘后",
+        "ext_label": "盘后",
+        "price_label": "收盘",
         "prev_close": 59.88,
-        "change_pct": -6.0,
+        "change_pct": -3.67,
         "date": "2026-11-13",
         "currency": "USD",
         "stale": false,
@@ -471,12 +516,12 @@
         ],
         "watch_only": false,
         "nearest_level": 52.0,
-        "gap_price": 4.2901,
-        "gap_pct": 8.25,
+        "gap_price": 5.68,
+        "gap_pct": 9.85,
         "touched_now": [],
         "newly_touched": [],
         "at_buy": false,
-        "sort_gap_pct": 8.2502,
+        "sort_gap_pct": 9.8474,
         "high_52w": 88.09,
         "low_52w": 37.32,
         "high_3m": 85.32,
@@ -484,6 +529,15 @@
         "high_20d": 73.43,
         "low_20d": 50.25,
         "atr14": 4.89,
+        "atr_suspect": false,
+        "data_note": "",
+        "ext_change_pct": -2.41,
+        "fixed_sl": 45.0,
+        "fixed_tp": [
+          60.0,
+          68.0
+        ],
+        "fixed_asof": "2026-11-14",
         "swapped_in": false,
         "swap_from": "",
         "added": "",
@@ -497,7 +551,7 @@
         ],
         "ref_sl": 42.66,
         "ref_tp": 80.34,
-        "sl_tp_reason": "技术参考（本地按历史价格计算，非 AI/新闻）：ATR14≈4.89；近三月低/高 50.25/85.32；近一年低/高 37.32/88.09。止损=最深买点下约 1.5 倍 ATR（并避开近期低点），止盈=阶梯均价上方阻力或约 3 倍 ATR。",
+        "sl_tp_reason": "技术参考（本地按历史价格算，非 AI/新闻）：基准=买点梯子（最深 50.00）；ATR14≈4.89；近三月低/高 50.25/85.32。止损=42.66（基准最低价下 1.5×ATR），止盈=80.34（近三月高点（限在均价上 2~6×ATR））。",
         "sl_tp_url": "",
         "notes": [],
         "sl_tp_source": "technical",
@@ -508,12 +562,13 @@
         "yf": "SOXL",
         "name": "半导体3倍做多",
         "kind": "levered",
-        "price": 55.68,
+        "price": 58.32,
         "close": 58.32,
         "extended_price": 55.68,
-        "price_label": "盘后",
+        "ext_label": "盘后",
+        "price_label": "收盘",
         "prev_close": 65.53,
-        "change_pct": -15.03,
+        "change_pct": -11.0,
         "date": "2026-11-13",
         "currency": "USD",
         "stale": false,
@@ -524,33 +579,42 @@
         ],
         "watch_only": false,
         "nearest_level": 47.0,
-        "gap_price": 8.68,
-        "gap_pct": 18.47,
+        "gap_price": 11.32,
+        "gap_pct": 19.41,
         "touched_now": [],
         "newly_touched": [],
         "at_buy": false,
-        "sort_gap_pct": 18.4681,
+        "sort_gap_pct": 19.4102,
         "high_52w": 302.0,
         "low_52w": 28.12,
         "high_3m": 169.83,
         "low_3m": 40.59,
         "high_20d": 108.6,
         "low_20d": 40.59,
-        "atr14": 13.3007,
+        "atr14": null,
+        "atr_suspect": true,
+        "data_note": "ATR14 占现价 23%，超过合理范围，已忽略，技术参考改用估算波动。",
+        "ext_change_pct": -4.53,
+        "fixed_sl": 38.0,
+        "fixed_tp": [
+          60.0,
+          75.0
+        ],
+        "fixed_asof": "2026-11-14",
         "swapped_in": false,
         "swap_from": "",
         "added": "",
         "extra_tranches": [
-          27.7
+          36.92
         ],
         "tranche_levels": [
           47,
           41,
-          27.7
+          36.92
         ],
-        "ref_sl": 21.05,
-        "ref_tp": 123.8,
-        "sl_tp_reason": "技术参考（本地按历史价格计算，非 AI/新闻）：ATR14≈13.30；近三月低/高 40.59/169.83；近一年低/高 28.12/302.00。止损=最深买点下约 1.5 倍 ATR（并避开近期低点），止盈=阶梯均价上方阻力或约 3 倍 ATR。",
+        "ref_sl": 34.88,
+        "ref_tp": 68.49,
+        "sl_tp_reason": "技术参考（本地按历史价格算，非 AI/新闻）：基准=买点梯子（最深 41.00）；ATR14≈4.08（估算）；近三月低/高 40.59/169.83。止损=34.88（基准最低价下 1.5×ATR），止盈=68.49（近三月高点（限在均价上 2~6×ATR））。",
         "sl_tp_url": "",
         "notes": [],
         "sl_tp_source": "technical",
@@ -561,12 +625,14 @@
       {
         "symbol": "QQQM",
         "name": "纳指100 ETF",
-        "price": 277.7999,
+        "price": 279.97,
         "close": 279.97,
         "extended_price": 277.7999,
-        "price_label": "盘后",
+        "ext_label": "盘后",
+        "price_label": "收盘",
         "prev_close": 283.39,
-        "change_pct": -1.97,
+        "change_pct": -1.21,
+        "ext_change_pct": -0.78,
         "date": "2026-11-13",
         "currency": "USD",
         "stale": false,
@@ -575,12 +641,14 @@
       {
         "symbol": "SCHD",
         "name": "美国红利 ETF",
-        "price": 36.0799,
+        "price": 36.12,
         "close": 36.12,
         "extended_price": 36.0799,
-        "price_label": "盘后",
+        "ext_label": "盘后",
+        "price_label": "收盘",
         "prev_close": 35.93,
-        "change_pct": 0.42,
+        "change_pct": 0.53,
+        "ext_change_pct": -0.11,
         "date": "2026-11-13",
         "currency": "USD",
         "stale": false,
@@ -613,7 +681,7 @@
           "price": 264.32,
           "change_pct": 4.29,
           "date": "2026-11-13",
-          "reason": "杰富瑞上调至买入，目标价从232美元升至305美元。"
+          "reason": "杰富瑞上调至买入，目标价由232美元提至305美元"
         },
         {
           "ticker": "GPN",
@@ -621,7 +689,7 @@
           "price": 91.9,
           "change_pct": 4.21,
           "date": "2026-11-13",
-          "reason": ""
+          "reason": "私募买方退出收购后，股价自前日大跌中反弹"
         }
       ],
       "losers": [
@@ -631,7 +699,7 @@
           "price": 534.06,
           "change_pct": -8.75,
           "date": "2026-11-13",
-          "reason": "黄仁勋辞职后芯片股反转下跌，回吐前日涨幅。"
+          "reason": "英伟达换帅后芯片股遭抛售，回吐本周涨幅"
         },
         {
           "ticker": "DELL",
@@ -639,7 +707,7 @@
           "price": 344.53,
           "change_pct": -7.18,
           "date": "2026-11-13",
-          "reason": "英伟达换帅后，AI服务器板块跟随芯片股下跌。"
+          "reason": "报道称搭载受限芯片的戴尔服务器流入上海"
         },
         {
           "ticker": "CSCO",
@@ -647,7 +715,7 @@
           "price": 95.64,
           "change_pct": -6.24,
           "date": "2026-11-13",
-          "reason": "业绩超预期，但毛利率下降250个基点引发抛售。"
+          "reason": "财报超预期，但毛利率同比下降约2.5个百分点"
         }
       ],
       "error": null
@@ -697,7 +765,13 @@
           52,
           50
         ],
-        "kind": "levered"
+        "kind": "levered",
+        "sl": 45.0,
+        "tp": [
+          60.0,
+          68.0
+        ],
+        "sltp_asof": "2026-11-14"
       },
       {
         "symbol": "SOXL",
@@ -707,7 +781,13 @@
           47,
           41
         ],
-        "kind": "levered"
+        "kind": "levered",
+        "sl": 38.0,
+        "tp": [
+          60.0,
+          75.0
+        ],
+        "sltp_asof": "2026-11-14"
       },
       {
         "symbol": "KORU",
@@ -717,7 +797,13 @@
           7,
           6.5
         ],
-        "kind": "levered"
+        "kind": "levered",
+        "sl": 6.0,
+        "tp": [
+          8.5,
+          10.5
+        ],
+        "sltp_asof": "2026-11-14"
       }
     ],
     "retired": [],
@@ -730,7 +816,7 @@
         "extra_tranches": [
           99.0
         ],
-        "reason": "技术参考（本地按历史价格计算，非 AI/新闻）：ATR14≈11.01；近三月低/高 148.80/243.37；近一年低/高 148.80/243.37。止损=最深买点下约 1.5 倍 ATR（并避开近期低点），止盈=阶梯均价上方阻力或约 3 倍 ATR。",
+        "reason": "技术参考（本地按历史价格算，非 AI/新闻）：基准=买点梯子（最深 110.00）；ATR14≈11.01；近三月低/高 148.80/243.37。止损=93.49（基准最低价下 1.5×ATR），止盈=197.28（近三月高点（限在均价上 2~6×ATR））。",
         "url": "",
         "source": "technical"
       },
@@ -740,7 +826,7 @@
         "extra_tranches": [
           182.16
         ],
-        "reason": "技术参考（本地按历史价格计算，非 AI/新闻）：ATR14≈7.84；近三月低/高 224.67/294.53；近一年低/高 190.12/362.71。止损=最深买点下约 1.5 倍 ATR（并避开近期低点），止盈=阶梯均价上方阻力或约 3 倍 ATR。",
+        "reason": "技术参考（本地按历史价格算，非 AI/新闻）：基准=买点梯子（最深 190.00）；ATR14≈7.84；近三月低/高 224.67/294.53。止损=178.25（基准最低价下 1.5×ATR），止盈=253.68（近三月高点（限在均价上 2~6×ATR））。",
         "url": "",
         "source": "technical"
       },
@@ -751,7 +837,7 @@
           518.65,
           495.68
         ],
-        "reason": "技术参考（本地按历史价格计算，非 AI/新闻）：ATR14≈11.35；近三月低/高 495.68/596.92；近一年低/高 464.01/596.92。止损=最深买点下约 1.5 倍 ATR（并避开近期低点），止盈=阶梯均价上方阻力或约 3 倍 ATR。",
+        "reason": "技术参考（本地按历史价格算，非 AI/新闻）：基准=买点梯子（最深 530.00）；ATR14≈11.35；近三月低/高 495.68/596.92。止损=490.00（近三月低点下 0.5×ATR），止盈=596.92（近三月高点（限在均价上 2~6×ATR））。",
         "url": "",
         "source": "technical"
       },
@@ -761,17 +847,17 @@
         "extra_tranches": [
           45.11
         ],
-        "reason": "技术参考（本地按历史价格计算，非 AI/新闻）：ATR14≈4.89；近三月低/高 50.25/85.32；近一年低/高 37.32/88.09。止损=最深买点下约 1.5 倍 ATR（并避开近期低点），止盈=阶梯均价上方阻力或约 3 倍 ATR。",
+        "reason": "技术参考（本地按历史价格算，非 AI/新闻）：基准=买点梯子（最深 50.00）；ATR14≈4.89；近三月低/高 50.25/85.32。止损=42.66（基准最低价下 1.5×ATR），止盈=80.34（近三月高点（限在均价上 2~6×ATR））。",
         "url": "",
         "source": "technical"
       },
       "SOXL": {
-        "stop_loss": 21.05,
-        "take_profit": 123.8,
+        "stop_loss": 34.88,
+        "take_profit": 68.49,
         "extra_tranches": [
-          27.7
+          36.92
         ],
-        "reason": "技术参考（本地按历史价格计算，非 AI/新闻）：ATR14≈13.30；近三月低/高 40.59/169.83；近一年低/高 28.12/302.00。止损=最深买点下约 1.5 倍 ATR（并避开近期低点），止盈=阶梯均价上方阻力或约 3 倍 ATR。",
+        "reason": "技术参考（本地按历史价格算，非 AI/新闻）：基准=买点梯子（最深 41.00）；ATR14≈4.08（估算）；近三月低/高 40.59/169.83。止损=34.88（基准最低价下 1.5×ATR），止盈=68.49（近三月高点（限在均价上 2~6×ATR））。",
         "url": "",
         "source": "technical"
       },
@@ -781,23 +867,19 @@
         "extra_tranches": [
           4.97
         ],
-        "reason": "技术参考（本地按历史价格计算，非 AI/新闻）：ATR14≈1.53；近三月低/高 6.46/25.37；近一年低/高 6.28/63.98。止损=最深买点下约 1.5 倍 ATR（并避开近期低点），止盈=阶梯均价上方阻力或约 3 倍 ATR。",
+        "reason": "技术参考（本地按历史价格算，非 AI/新闻）：基准=买点梯子（最深 6.50）；ATR14≈1.53；近三月低/高 6.46/25.37。止损=4.20（基准最低价下 1.5×ATR），止盈=15.94（近三月高点（限在均价上 2~6×ATR））。",
         "url": "",
         "source": "technical"
       }
     },
     "big_news": [
       {
-        "summary": "英伟达宣布黄仁勋立即辞去首席执行官，由首席财务官科莱特·克雷斯担任临时首席执行官。",
+        "summary": "英伟达宣布黄仁勋辞去首席执行官，首席财务官科莱特·克雷斯出任临时首席执行官。",
         "url": "https://nvidianews.nvidia.com/news/nvidia-announces-ceo-transition"
       },
       {
-        "summary": "美国10月生产者物价指数环比上升0.3%，同比上升6.5%，为2022年11月以来最大同比升幅。",
-        "url": "https://www.bls.gov/ppi/news-release/"
-      },
-      {
-        "summary": "旧金山联储行长戴利表示，其倾向认为美联储仍需加息。",
-        "url": "https://www.reuters.com/business/fed-likely-need-raise-rates-amid-worsening-inflation-daly-2026-11-13/"
+        "summary": "美国10月生产者价格指数同比上涨6.5%，为近四年来最高，市场继续计入12月加息。",
+        "url": "https://www.cnbc.com/2026/11/13/ppi-inflation-report-october-2026.html"
       }
     ],
     "ai_stale": false,
@@ -819,16 +901,12 @@
     "unusual_movers": [],
     "big_news": [
       {
-        "summary": "英伟达宣布黄仁勋立即辞去首席执行官，由首席财务官科莱特·克雷斯担任临时首席执行官。",
+        "summary": "英伟达宣布黄仁勋辞去首席执行官，首席财务官科莱特·克雷斯出任临时首席执行官。",
         "url": "https://nvidianews.nvidia.com/news/nvidia-announces-ceo-transition"
       },
       {
-        "summary": "美国10月生产者物价指数环比上升0.3%，同比上升6.5%，为2022年11月以来最大同比升幅。",
-        "url": "https://www.bls.gov/ppi/news-release/"
-      },
-      {
-        "summary": "旧金山联储行长戴利表示，其倾向认为美联储仍需加息。",
-        "url": "https://www.reuters.com/business/fed-likely-need-raise-rates-amid-worsening-inflation-daly-2026-11-13/"
+        "summary": "美国10月生产者价格指数同比上涨6.5%，为近四年来最高，市场继续计入12月加息。",
+        "url": "https://www.cnbc.com/2026/11/13/ppi-inflation-report-october-2026.html"
       }
     ],
     "swap_proposal": null,
@@ -840,51 +918,51 @@
       },
       {
         "title": "",
-        "url": "https://www.bls.gov/ppi/news-release/"
+        "url": "https://www.cnbc.com/2026/11/13/ppi-inflation-report-october-2026.html"
       },
       {
-        "title": "",
-        "url": "https://www.reuters.com/business/fed-likely-need-raise-rates-amid-worsening-inflation-daly-2026-11-13/"
+        "title": "https://www.stocktitan.net/articles/stock-market-today-live-november-13-2026",
+        "url": "https://www.stocktitan.net/articles/stock-market-today-live-november-13-2026"
       },
       {
-        "title": "https://www.eoption.com/mid-morning-look-november-13-2026/",
-        "url": "https://www.eoption.com/mid-morning-look-november-13-2026/"
+        "title": "https://www.chartmill.com/news/AMD/Chartmill-58672-SP-500-Gap-Down-Stocks-in-the-Nov-13-Session",
+        "url": "https://www.chartmill.com/news/AMD/Chartmill-58672-SP-500-Gap-Down-Stocks-in-the-Nov-13-Session"
       },
       {
-        "title": "https://quant500.com/sp500-gainers-losers",
-        "url": "https://quant500.com/sp500-gainers-losers"
+        "title": "https://www.intelligentinvestor.com.au/shares/nasdaq-chtr/charter-communications",
+        "url": "https://www.intelligentinvestor.com.au/shares/nasdaq-chtr/charter-communications"
       },
       {
-        "title": "https://clearank.com/stock/charter-communications-chtr/",
-        "url": "https://clearank.com/stock/charter-communications-chtr/"
+        "title": "https://www.investing.com/news/stock-market-news/why-is-cisco-stock-sliding-today-93CH-5024605",
+        "url": "https://www.investing.com/news/stock-market-news/why-is-cisco-stock-sliding-today-93CH-5024605"
       },
       {
-        "title": "https://www.reuters.com/business/us-treasury-chief-says-fed-should-not-hike-rates-over-energy-shock-tied-iran-war-2026-11-13/",
-        "url": "https://www.reuters.com/business/us-treasury-chief-says-fed-should-not-hike-rates-over-energy-shock-tied-iran-war-2026-11-13/"
+        "title": "https://www.reuters.com/world/china/factbox-chinas-3-billion-plus-pipeline-nvidia-powered-ai-data-centres-2026-11-13/",
+        "url": "https://www.reuters.com/world/china/factbox-chinas-3-billion-plus-pipeline-nvidia-powered-ai-data-centres-2026-11-13/"
       },
       {
-        "title": "https://www.gurufocus.com/stock/GPN/article",
-        "url": "https://www.gurufocus.com/stock/GPN/article"
+        "title": "https://stockanalysis.com/stocks/csco/",
+        "url": "https://stockanalysis.com/stocks/csco/"
       },
       {
-        "title": "https://www.chartmill.com/stock/markets/usa/movers/top-gainers/sp-500",
-        "url": "https://www.chartmill.com/stock/markets/usa/movers/top-gainers/sp-500"
+        "title": "https://ng.investing.com/news/stock-market-news/why-is-dell-technologies-stock-sliding-today-93CH-2807107",
+        "url": "https://ng.investing.com/news/stock-market-news/why-is-dell-technologies-stock-sliding-today-93CH-2807107"
       },
       {
-        "title": "https://www.benzinga.com/markets/equities/26/11/63259862/stock-market-today-amd-nvidia-chip-selloff-cisco-modine-november-13",
-        "url": "https://www.benzinga.com/markets/equities/26/11/63259862/stock-market-today-amd-nvidia-chip-selloff-cisco-modine-november-13"
+        "title": "https://k.sina.cn/article_5952915705_162d248f906703t5hk.html?vt=4&from=finance",
+        "url": "https://k.sina.cn/article_5952915705_162d248f906703t5hk.html?vt=4&from=finance"
       },
       {
-        "title": "https://www.nextearningsdate.com/adbe.html",
-        "url": "https://www.nextearningsdate.com/adbe.html"
+        "title": "https://www.reuters.com/world/cdr-gtcr-drop-pursuit-global-payments-sources-say-2026-11-12/",
+        "url": "https://www.reuters.com/world/cdr-gtcr-drop-pursuit-global-payments-sources-say-2026-11-12/"
       },
       {
-        "title": "https://www.marketbeat.com/all-access/ratings-screener/details/2499769/",
-        "url": "https://www.marketbeat.com/all-access/ratings-screener/details/2499769/"
+        "title": "https://news.alphastreet.com/dell-technologies-drops-7-8-amid-sector-wide-selling/",
+        "url": "https://news.alphastreet.com/dell-technologies-drops-7-8-amid-sector-wide-selling/"
       }
     ]
   },
-  "radar_date": "2026-11-14",
+  "radar_date": "2026-11-15",
   "radar_stale": false,
   "ai": {
     "provider": "grok",
