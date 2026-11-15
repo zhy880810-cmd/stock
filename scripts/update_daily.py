@@ -4,6 +4,7 @@
 
 - 不含任何持仓数量/成本/金额（隐私默认）。公开文件只写代码、价格、买点缺口和新闻。
 - 买点表、定投收盘价、距买点跌幅、标普 500 涨跌幅、止损/止盈/补充批次（技术参考：ATR + 近期高低点）均在本地计算，不由模型编造。
+- 止损/止盈优先级：我的（网页/HOLDINGS_JSON）＞ 已定（config.json 的 agreed_sltp，合并进 plan.active）＞ 技术参考；所有距离以现价为分母；日涨跌为常规时段，盘后单列。
 - AI（Grok / Gemini）主流程只调用一次，只负责：标普 500 涨跌榜每只一句原因、1–3 条大新闻（各附一个链接）、至多一条明显更好的机会（只给代码和理由，价格仍由本地算）。若这次返回无法解析为 JSON，再追加一次很短的「只输出 JSON」修复调用。
 - 明显更好的机会会由脚本直接自动替换计划里被点名的标的（无需用户确认）：当前计划写在 data.json 的 plan.active（只有代码、买点、名称），config.json 只是首次的种子；替换记录写在 plan.swap_log。被换出的标的进入 plan.retired（网页上只在你标记已买入/持仓里有它时继续显示止损止盈）。
 - 若设置了 SERVERCHAN_KEY，每次运行后推送一条简短中文摘要到微信（不含任何持仓金额）。
@@ -53,6 +54,15 @@ PLAN_SPECS = [
     {"symbol": "SOXL", "yf": "SOXL", "name": "半导体3倍做多", "levels": [47, 41], "kind": "levered"},
     {"symbol": "KORU", "yf": "KORU", "name": "韩国3倍做多", "levels": [7, 6.5], "kind": "levered"},
 ]
+# 用户已定的固定止损/止盈（美元价位；止盈可有两档）。不含任何数量、成本、盈亏。
+# config.json 的 agreed_sltp 可覆盖/追加同样结构；页面里「我的」改价优先级更高。
+AGREED_SLTP_DEFAULT = {
+    "TQQQ": {"sl": 45, "tp": [60, 68], "as_of": "2026-11-14"},
+    "SOXL": {"sl": 38, "tp": [60, 75], "as_of": "2026-11-14"},
+    "KORU": {"sl": 6.0, "tp": [8.5, 10.5], "as_of": "2026-11-14"},
+}
+FIXED_CANCELLED = set()                     # config 里写成空对象的代码：不再沿用旧的已定价
+FIXED_SLTP = {}                             # main() 里由默认值 + config.json 合并而来
 SEED_SPECS = [dict(s) for s in PLAN_SPECS]   # 首次种子；之后以 data.json 的 plan.active 为准
 RETIRED_SPECS = []                          # 已被换出的标的（页面只在你持有/标记已买入时显示）
 SWAP_LOG = []                               # 自动替换记录
@@ -129,58 +139,129 @@ def _to_et(ts):
         return None
 
 
-def _is_extended_bar(ts):
+def _ext_session(ts):
+    """按美东时间（自动含夏令时）判断一根分钟线属于哪个盘外时段：04:00–09:30 盘前，16:00–20:00 盘后；
+    其他时间（含常规时段、20:00–04:00 夜间）返回 None。夜盘（夜间）不做识别：yfinance 的盘前盘后数据不含夜盘。"""
     et = _to_et(ts)
     if et is None:
-        return False
-    minutes = et.hour * 60 + et.minute
-    # 美股常规交易 9:30–16:00 ET；之外视为盘前/盘后
-    return minutes < 9 * 60 + 30 or minutes >= 16 * 60
+        return None, None
+    m = et.hour * 60 + et.minute
+    if 4 * 60 <= m < 9 * 60 + 30:
+        return "盘前", et
+    if 16 * 60 <= m < 20 * 60:
+        return "盘后", et
+    return None, et
 
 
 def _attach_extended(t, rec):
-    """若能拿到盘后/盘前价，写入 extended_price，并把 display 价改成该价格。"""
-    ext = None
-    # 1) 带盘前盘后的分钟线，取最新一根（若已离开常规时段）
+    """若当前有盘前/盘后价，另存 extended_price / ext_label（盘前或盘后）/ ext_change_pct（相对常规收盘）。
+    price、change_pct 始终是常规时段（收盘，或盘中运行时的实时常规价）及其相对上一收盘的涨跌，
+    买点缺口、止盈止损触及、距离、今日盈亏都只用它们，绝不使用盘外价。"""
+    ext, label = None, None
+    close = rec.get("close") or rec.get("price")
+    last_daily = rec.get("date")  # 最后一根日线的日期（常规收盘日）
+    # 1) 带盘前盘后的分钟线，取最新一根（必须是盘前/盘后时段，且与最后一根日线日期相符）
     try:
         h = t.history(period="1d", interval="5m", prepost=True, auto_adjust=False)
         if h is not None and len(h) and "Close" in h:
             h = h.dropna(subset=["Close"])
         if h is not None and len(h):
             last_ts, last_px = h.index[-1], float(h["Close"].iloc[-1])
-            if last_px > 0 and _is_extended_bar(last_ts):
-                ext = last_px
+            sess, et = _ext_session(last_ts)
+            if last_px > 0 and sess and et is not None and last_daily:
+                bar_day = et.strftime("%Y-%m-%d")
+                # 盘后：必须是收盘当天；盘前：必须是收盘日之后的交易日
+                if (sess == "盘后" and bar_day == last_daily) or (sess == "盘前" and bar_day > last_daily):
+                    ext, label = last_px, sess
     except Exception:  # noqa: BLE001
         pass
-    # 2) 回退：ticker.info 的盘后/盘前字段（较慢，仅在上面失败时尝试）
+    # 2) 回退：ticker.info 的盘前/盘后字段，必须与 marketState 对得上
     if ext is None:
         try:
             info = t.info or {}
-            for k in ("postMarketPrice", "preMarketPrice"):
-                v = info.get(k)
-                if v and float(v) > 0:
-                    ext = float(v)
-                    break
+            state = str(info.get("marketState") or "").upper()
+            key = None
+            if state == "PRE":
+                key, label_ = "preMarketPrice", "盘前"
+            elif state in ("POST", "POSTPOST", "CLOSED"):
+                key, label_ = "postMarketPrice", "盘后"
+            v = info.get(key) if key else None
+            if v and float(v) > 0:
+                ext, label = float(v), label_
         except Exception:  # noqa: BLE001
             pass
-    if ext is None:
+    if ext is None or not close:
         return rec
-    close = rec.get("close") or rec.get("price")
-    # 与收盘几乎相同则不必标盘后
-    if close and abs(ext - close) < 0.0005:
+    # 与收盘几乎相同则不必显示
+    if abs(ext - close) < 0.0005:
+        return rec
+    # 防呆：盘外价与常规收盘相差离谱（>1.8 倍或 <0.55 倍）多半是拆/并股或坏点，不采用
+    if not (0.55 <= ext / close <= 1.8):
+        rec = dict(rec)
+        rec["range_note"] = (rec.get("range_note") or "") + "盘外价与收盘相差过大，已忽略。"
         return rec
     rec = dict(rec)
     rec["extended_price"] = round(ext, 4)
-    rec["price"] = round(ext, 4)
-    rec["price_label"] = "盘后"
-    prev = rec.get("prev_close")
-    if prev:
-        rec["change_pct"] = round((ext / prev - 1) * 100, 2)
+    rec["ext_label"] = label
+    rec["ext_change_pct"] = round((ext / close - 1) * 100, 2)   # 相对常规收盘，不是相对前一日
     return rec
 
 
-def _attach_range(t, rec):
-    """附带近一年/三个月/20 日高低和 ATR14，用于本地计算技术参考（不调用模型）。"""
+def _is_levered_yf(sym):
+    s = str(sym or "").upper()
+    return bool(LEVERED_RE.match(s.replace("-", ".")) or s in LEVERED)
+
+
+def _sanitize_history(h, sym="", drop_bad_bars=True):
+    """清洗日线：1) 发现拆股/并股式跳变（日收盘比 >1.8 倍或 <0.55 倍）时，
+    有对应 Stock Splits 记录就按比例还原更早的价格，否则只保留跳变之后的数据；
+    2) 丢掉明显的坏高低点（最高价 >1.8 倍开/收盘较大者，或最低价 <0.5 倍较小者）。
+    返回 (清洗后的表, 说明列表)。Yahoo 一般已做拆股调整，但刚拆股后偶尔还没调整，或数据有坏点。"""
+    notes = []
+    if h is None or not len(h) or "Close" not in h.columns:
+        return h, notes
+    h = h.copy()
+    has_splits = "Stock Splits" in h.columns
+    # 1) 跳变处理（从最近的往前处理）
+    for _ in range(4):
+        close = h["Close"]
+        r = (close / close.shift(1)).to_numpy()
+        pos = [i for i in range(1, len(r)) if r[i] == r[i] and (r[i] > 1.8 or r[i] < 0.55)]
+        if not pos:
+            break
+        i = pos[-1]
+        split = None
+        if has_splits:
+            for j in range(max(0, i - 2), min(len(h), i + 3)):
+                v = float(h["Stock Splits"].iloc[j] or 0)
+                if v > 0 and v != 1 and 0.7 <= float(r[i]) * v <= 1.4:
+                    split = v
+                    break
+        if split:
+            for c in ("Open", "High", "Low", "Close"):
+                if c in h.columns:
+                    h.iloc[:i, h.columns.get_loc(c)] = h[c].iloc[:i] / split
+            if "Volume" in h.columns:
+                h.iloc[:i, h.columns.get_loc("Volume")] = h["Volume"].iloc[:i] * split
+            notes.append(f"{h.index[i].strftime('%Y-%m-%d')} 有拆/并股（比例 {split:g}），更早的价格已按比例还原。")
+        else:
+            notes.append(f"{h.index[i].strftime('%Y-%m-%d')} 价格出现拆/并股式跳变（{float(r[i]):.2f} 倍）且无拆股记录，只用该日之后的数据。")
+            h = h.iloc[i:]
+    # 2) 坏高低点
+    if drop_bad_bars and "High" in h.columns and "Low" in h.columns and len(h):
+        top = h[[c for c in ("Open", "Close") if c in h.columns]].max(axis=1)
+        bot = h[[c for c in ("Open", "Close") if c in h.columns]].min(axis=1)
+        bad = (h["High"] > top * 1.8) | (h["Low"] < bot * 0.5)
+        n_bad = int(bad.sum())
+        if n_bad:
+            h = h[~bad]
+            notes.append(f"已排除 {n_bad} 根明显异常的高低点数据。")
+    return h, notes
+
+
+def _attach_range(t, rec, sym=""):
+    """附带近一年/三个月/20 日高低和 ATR14，用于本地计算技术参考（不调用模型）。
+    数据先经 _sanitize_history 清洗；ATR 占现价比例过大（普通品种 >12%，杠杆 ETF >20%）视为可疑，不采用。"""
     try:
         import pandas as pd
         h = t.history(period="1y", auto_adjust=False)
@@ -192,7 +273,16 @@ def _attach_range(t, rec):
         h = h.dropna(subset=need)
         if not len(h):
             return rec
+        h, notes = _sanitize_history(h, sym)
+        if h is None or not len(h):
+            return rec
         rec = dict(rec)
+        ref = rec.get("close") or rec.get("price")
+        last_c = float(h["Close"].iloc[-1])
+        if ref and not (0.7 <= last_c / float(ref) <= 1.4):
+            rec["range_note"] = "一年历史与最新价对不上（可能未做拆股调整），本次不使用高低点和 ATR，技术参考改用估算。"
+            rec["atr_suspect"] = True
+            return rec
         rec["high_52w"] = round(float(h["High"].max()), 4)
         rec["low_52w"] = round(float(h["Low"].min()), 4)
         last = h.tail(63)
@@ -203,12 +293,31 @@ def _attach_range(t, rec):
         rec["low_20d"] = round(float(l20["Low"].min()), 4)
         prev = h["Close"].shift(1)
         tr = pd.concat([h["High"] - h["Low"], (h["High"] - prev).abs(), (h["Low"] - prev).abs()], axis=1).max(axis=1)
-        atr = tr.tail(14).mean()
+        atr = tr.tail(14).mean() if len(h) >= 15 else float("nan")
+        cap = 0.20 if _is_levered_yf(sym) else 0.12
         if atr == atr and atr > 0:
-            rec["atr14"] = round(float(atr), 4)
+            if last_c > 0 and atr / last_c > cap:
+                rec["atr_suspect"] = True
+                notes.append(f"ATR14 占现价 {atr / last_c * 100:.0f}%，超过合理范围，已忽略，技术参考改用估算波动。")
+            else:
+                rec["atr14"] = round(float(atr), 4)
+        elif len(h) < 15:
+            rec["atr_suspect"] = True
+            notes.append("可用的历史数据太少，ATR 改用估算波动。")
+        if notes:
+            rec["range_note"] = (rec.get("range_note") or "") + "".join(notes)
     except Exception:  # noqa: BLE001
         return rec
     return rec
+
+
+def _regular_session_open_now():
+    """美股常规时段内（周一到周五 9:30–16:00 ET），最后一根日线是盘中价，不是收盘价。"""
+    now = datetime.now(ET)
+    if now.weekday() >= 5:
+        return False
+    m = now.hour * 60 + now.minute
+    return 9 * 60 + 30 <= m < 16 * 60
 
 
 def fetch_one(sym, want_extended=False):
@@ -220,6 +329,7 @@ def fetch_one(sym, want_extended=False):
         h = h.dropna(subset=["Close"])
         if len(h) < 1:
             raise RuntimeError("没有返回数据（代码可能写错，或接口暂时不可用）")
+        h, hist_notes = _sanitize_history(h, sym, drop_bad_bars=False)
         last = float(h["Close"].iloc[-1])
         prev = float(h["Close"].iloc[-2]) if len(h) >= 2 else None
         date = h.index[-1].strftime("%Y-%m-%d")
@@ -230,7 +340,9 @@ def fetch_one(sym, want_extended=False):
                 cur = str(c).upper()
         except Exception:  # noqa: BLE001
             pass
+        # 常规时段涨跌：最后一根日线收盘 vs 上一根日线收盘（不含盘前盘后）
         pct = (last / prev - 1) * 100 if prev else None
+        intraday = date == datetime.now(ET).strftime("%Y-%m-%d") and _regular_session_open_now()
         rec = {
             "price": round(last, 4),
             "close": round(last, 4),
@@ -238,11 +350,13 @@ def fetch_one(sym, want_extended=False):
             "change_pct": round(pct, 2) if pct is not None else None,
             "date": date,
             "currency": cur,
-            "price_label": "收盘",
+            "price_label": "盘中" if intraday else "收盘",
         }
+        if hist_notes:
+            rec["range_note"] = "".join(hist_notes)
         if want_extended:
             rec = _attach_extended(t, rec)
-            rec = _attach_range(t, rec)
+            rec = _attach_range(t, rec, sym)
         return rec
 
     return retry(go, tries=3, delay=3, what=f"获取 {sym}")
@@ -449,6 +563,68 @@ def _days_between(a, b):
         return 9999
 
 
+def _clean_fixed(v):
+    """规范化一条固定止损/止盈：{"sl": 数, "tp": [数, ...最多两档], "as_of": 日期}；无效返回 None。"""
+    if not isinstance(v, dict):
+        return None
+    out = {}
+    try:
+        sl = float(v.get("sl") if v.get("sl") is not None else v.get("stop") or 0)
+    except (TypeError, ValueError):
+        sl = 0
+    if sl > 0:
+        out["sl"] = sl
+    raw = v.get("tp") if v.get("tp") is not None else v.get("take")
+    if raw is None:
+        raw = []
+    if not isinstance(raw, (list, tuple)):
+        raw = [raw]
+    tps = []
+    for x in raw:
+        try:
+            n = float(x)
+        except (TypeError, ValueError):
+            continue
+        if n > 0:
+            tps.append(n)
+    tps = sorted(set(tps))[:2]
+    if tps:
+        out["tp"] = tps
+    if not out:
+        return None
+    out["as_of"] = str(v.get("as_of") or v.get("asof") or "")[:10]
+    return out
+
+
+def load_fixed_sltp(cfg):
+    """默认已定止损止盈 + config.json 的 agreed_sltp（同代码以 config 为准）。"""
+    FIXED_SLTP.clear()
+    FIXED_CANCELLED.clear()
+    for sym, v in AGREED_SLTP_DEFAULT.items():
+        c = _clean_fixed(v)
+        if c:
+            FIXED_SLTP[_canon(sym)] = c
+    for sym, v in ((cfg or {}).get("agreed_sltp") or {}).items():
+        if str(sym).startswith("_"):
+            continue
+        c = _clean_fixed(v)
+        if c:
+            FIXED_SLTP[_canon(sym)] = c
+        else:
+            FIXED_SLTP.pop(_canon(sym), None)   # 写成空对象表示取消这只的固定价
+            FIXED_CANCELLED.add(_canon(sym))
+
+
+def _fixed_for(spec_or_sym):
+    """优先 config 里的已定价；没有就用 plan.active 里保存过的 sl/tp。"""
+    if isinstance(spec_or_sym, dict):
+        sym = _canon(spec_or_sym.get("symbol"))
+        stored = _clean_fixed({"sl": spec_or_sym.get("sl"), "tp": spec_or_sym.get("tp"), "as_of": spec_or_sym.get("sltp_asof")})
+    else:
+        sym, stored = _canon(spec_or_sym), None
+    return FIXED_SLTP.get(sym) or stored
+
+
 def init_plan_state(prev_plan, today):
     """从上次 data.json 的 plan 里恢复当前计划；没有就用种子。只含代码、买点、名称。"""
     seed = {_canon(s["symbol"]): s for s in SEED_SPECS}
@@ -474,6 +650,16 @@ def init_plan_state(prev_plan, today):
             kind = e.get("kind") if e.get("kind") in ("stock", "levered", "nvda", "brk") else "stock"
             spec = {"symbol": sym, "yf": str(e["yf"]).upper(), "name": _s(e.get("name"), 60) or sym, "levels": lv,
                     "kind": kind, "added": e.get("added") or "", "from": _canon(e.get("from")), "why": _s(e.get("why"), 300)}
+        for k in ("sl", "tp", "sltp_asof"):
+            if e.get(k) is not None and spec.get(k) is None and sym not in FIXED_CANCELLED:
+                spec[k] = e[k]
+        fx = FIXED_SLTP.get(sym)
+        if fx:  # 已定止损/止盈合并进 plan.active（不覆盖页面「我的」改价；那只存在浏览器里）
+            if fx.get("sl"):
+                spec["sl"] = fx["sl"]
+            if fx.get("tp"):
+                spec["tp"] = list(fx["tp"])
+            spec["sltp_asof"] = fx.get("as_of") or ""
         active.append(spec)
         seen.add(sym)
     if not active:
@@ -482,6 +668,14 @@ def init_plan_state(prev_plan, today):
         for sym, s in seed.items():
             if sym not in seen and sym not in dropped:
                 active.append(dict(s))
+    for spec in active:
+        fx = FIXED_SLTP.get(_canon(spec["symbol"]))
+        if fx:
+            if fx.get("sl"):
+                spec["sl"] = fx["sl"]
+            if fx.get("tp"):
+                spec["tp"] = list(fx["tp"])
+            spec["sltp_asof"] = fx.get("as_of") or ""
     retired = []
     for e in (prev_plan or {}).get("retired") or []:
         if not isinstance(e, dict) or not e.get("symbol") or not e.get("yf"):
@@ -599,7 +793,7 @@ def build_buy_row(spec, rec, err, prev_row, session_hint, beijing_date):
             if not lv:
                 continue
             gp = price - lv
-            gpct = (price / lv - 1) * 100
+            gpct = (price - lv) / price * 100     # 现价还要再跌多少 % 才到该买点（以现价为分母）
             scored.append((lv, gp, gpct))
             if price <= lv + 1e-9:
                 touched_now.append(lv)
@@ -635,7 +829,8 @@ def build_buy_row(spec, rec, err, prev_row, session_hint, beijing_date):
         "price": _r(price),
         "close": _r(close),
         "extended_price": _r((rec or {}).get("extended_price")),
-        "price_label": (rec or {}).get("price_label") or ("盘后" if (rec or {}).get("extended_price") else "收盘"),
+        "ext_label": (rec or {}).get("ext_label") or "",
+        "price_label": (rec or {}).get("price_label") or "收盘",
         "prev_close": _r((rec or {}).get("prev_close")),
         "change_pct": _r((rec or {}).get("change_pct"), 2),
         "date": (rec or {}).get("date"),
@@ -658,6 +853,12 @@ def build_buy_row(spec, rec, err, prev_row, session_hint, beijing_date):
         "high_20d": _r((rec or {}).get("high_20d")),
         "low_20d": _r((rec or {}).get("low_20d")),
         "atr14": _r((rec or {}).get("atr14")),
+        "atr_suspect": bool((rec or {}).get("atr_suspect")),
+        "data_note": ((rec or {}).get("range_note") or "")[:240],
+        "ext_change_pct": _r((rec or {}).get("ext_change_pct"), 2),
+        "fixed_sl": _r((_fixed_for(spec) or {}).get("sl"), 4),
+        "fixed_tp": [round(x, 4) for x in ((_fixed_for(spec) or {}).get("tp") or [])],
+        "fixed_asof": (_fixed_for(spec) or {}).get("as_of") or "",
         "swapped_in": bool(spec.get("from")),
         "swap_from": spec.get("from") or "",
         "added": spec.get("added") or "",
@@ -682,9 +883,14 @@ def _px(x):
     return round(float(x), 2) if abs(float(x)) >= 1 else round(float(x), 3)
 
 
-def compute_tech_levels(price, levels, st):
+def compute_tech_levels(price, levels, st, basis="ladder"):
     """本地用历史价格算技术参考：止损、止盈、补充批次。不调用模型，不是新闻判断。
-    st 需包含 atr14、low_3m/high_3m、low_20d、low_52w/high_52w（缺哪项就少用哪项）。"""
+    basis="ladder"：以买点梯子为基准（还没买）；basis="cost"：levels 传入 [你的成本]（已买/持有）。
+    st 需包含 atr14、low_3m/high_3m、low_20d、low_52w/high_52w（缺哪项就少用哪项）。
+    公式（与 reason 文字一致）：
+      止损 = min( 基准最低价 − 1.5×ATR ，  近三月低点或 20 日低点（低于基准最低价时）− 0.5×ATR )
+      止盈 = 基准均价 + 3×ATR；若近三月高点高出均价 5% 以上，改用「近三月高点，限制在均价+2~6 倍 ATR 内」；
+             再保证不低于基准最高价的 103%。"""
     try:
         price = float(price)
     except (TypeError, ValueError):
@@ -692,10 +898,16 @@ def compute_tech_levels(price, levels, st):
     if not price > 0:
         return None
     atr = (st or {}).get("atr14")
+    est = False
+    # ATR 缺失/可疑时用现价的固定比例估算（杠杆 ETF 波动大，取 7%；其他 4%）
+    fb = 0.07 if (st or {}).get("kind") == "levered" else 0.04
     try:
-        atr = float(atr) if atr and float(atr) > 0 else price * 0.04
+        if atr and float(atr) > 0 and not (float(atr) / price > (0.20 if fb > 0.05 else 0.12)):
+            atr = float(atr)
+        else:
+            atr, est = price * fb, True
     except (TypeError, ValueError):
-        atr = price * 0.04
+        atr, est = price * fb, True
     core = sorted([float(x) for x in (levels or []) if x and float(x) > 0], reverse=True)
     extras = []
     if not core:
@@ -704,22 +916,27 @@ def compute_tech_levels(price, levels, st):
         extras = [price - atr, price - 2 * atr]
     low_core, high_core = min(core + extras), max(core)
     avg_core = sum(core + extras) / len(core + extras)
-    sl = low_core - (1.5 if extras else 1.5) * atr
+    sl = low_core - 1.5 * atr
+    sl_how = "基准最低价下 1.5×ATR"
     l3, h3 = (st or {}).get("low_3m"), (st or {}).get("high_3m")
     l20 = (st or {}).get("low_20d")
-    for sw in (l3, l20):
+    for sw, nm in ((l3, "近三月低点"), (l20, "20日低点")):
         try:
-            if sw and 0 < float(sw) < low_core:
-                sl = min(sl, float(sw) - 0.5 * atr)
+            if sw and 0 < float(sw) < low_core and float(sw) - 0.5 * atr < sl:
+                sl = float(sw) - 0.5 * atr
+                sl_how = f"{nm}下 0.5×ATR"
         except (TypeError, ValueError):
             pass
     tp = avg_core + 3 * atr
+    tp_how = "基准均价上 3×ATR"
     try:
         if h3 and float(h3) > avg_core * 1.05:
             tp = max(avg_core + 2 * atr, min(float(h3), avg_core + 6 * atr))
+            tp_how = "近三月高点（限在均价上 2~6×ATR）"
     except (TypeError, ValueError):
         pass
-    tp = max(tp, high_core * 1.03)
+    if tp < high_core * 1.03:
+        tp, tp_how = high_core * 1.03, "基准最高价的 103%"
     if not extras:
         e1 = low_core - atr
         cand = [e1]
@@ -733,9 +950,10 @@ def compute_tech_levels(price, levels, st):
                 extras.append(c)
     sl = max(sl, 0.01)
     f = lambda v: (f"{v:.2f}" if v is not None else "—")
-    reason = (f"技术参考（本地按历史价格计算，非 AI/新闻）：ATR14≈{f(atr)}；近三月低/高 {f(l3)}/{f(h3)}；"
-              f"近一年低/高 {f((st or {}).get('low_52w'))}/{f((st or {}).get('high_52w'))}。"
-              f"止损=最深买点下约 1.5 倍 ATR（并避开近期低点），止盈=阶梯均价上方阻力或约 3 倍 ATR。")
+    base_txt = (f"你的成本 {f(core[0])}" if basis == "cost" and len(core) == 1
+                else f"买点梯子（最深 {f(min(core))}）" if basis != "cost" else f"基准 {f(min(core))}")
+    reason = (f"技术参考（本地按历史价格算，非 AI/新闻）：基准={base_txt}；ATR14≈{f(atr)}{'（估算）' if est else ''}；"
+              f"近三月低/高 {f(l3)}/{f(h3)}。止损={f(sl)}（{sl_how}），止盈={f(tp)}（{tp_how}）。")
     return {
         "stop_loss": _px(sl),
         "take_profit": _px(tp),
@@ -806,9 +1024,11 @@ def build_dca_row(spec, rec, err):
         "price": _r((rec or {}).get("price")),
         "close": _r((rec or {}).get("close") or (rec or {}).get("price")),
         "extended_price": _r((rec or {}).get("extended_price")),
+        "ext_label": (rec or {}).get("ext_label") or "",
         "price_label": (rec or {}).get("price_label") or "收盘",
         "prev_close": _r((rec or {}).get("prev_close")),
         "change_pct": _r((rec or {}).get("change_pct"), 2),
+        "ext_change_pct": _r((rec or {}).get("ext_change_pct"), 2),
         "date": (rec or {}).get("date"),
         "currency": (rec or {}).get("currency") or "USD",
         "stale": bool((rec or {}).get("stale")),
@@ -868,7 +1088,7 @@ def build_plan(prices, errors, prev_plan, beijing_date, movers, ai_bits, stale_a
         "swap_proposal": (ai_bits or {}).get("swap_proposal"),
         "opportunities": [],
         "retired_table": retired_rows,
-        "active": [{k: s.get(k) for k in ("symbol", "yf", "name", "levels", "kind", "added", "from", "why") if s.get(k) not in (None, "")} for s in PLAN_SPECS],
+        "active": [{k: s.get(k) for k in ("symbol", "yf", "name", "levels", "kind", "added", "from", "why", "sl", "tp", "sltp_asof") if s.get(k) not in (None, "", [])} for s in PLAN_SPECS],
         "retired": [dict(s) for s in RETIRED_SPECS],
         "swap_log": list(SWAP_LOG),
         "dropped": list(DROPPED),
@@ -1508,6 +1728,14 @@ def _px_cell(r):
     return f"${_fpx(px)} {lab}" + ("·旧" if r.get("stale") else "")
 
 
+def _ext_ref_text(src):
+    """第二行「参考」：当前盘前/盘后价及相对常规收盘的涨跌；没有就返回空串。"""
+    if not isinstance(src, dict) or src.get("extended_price") is None or not src.get("ext_label"):
+        return ""
+    ep = src.get("ext_change_pct")
+    return f"{src['ext_label']} {_fpx(src['extended_price'])}" + (f" {_fpct(ep, 2)}" if ep is not None else "") + "（相对收盘，参考）"
+
+
 def _fusd(v, signed=False):
     try:
         v = float(v)
@@ -1616,25 +1844,66 @@ def load_holdings_for_push():
     return {"capital": capital, "cash": cash, "positions": positions}
 
 
+def _dist_to_stop(px, sl):
+    """距止损：现价还要再跌多少 %（以现价为分母）。"""
+    return (float(px) - float(sl)) / float(px) * 100
+
+
+def _dist_to_tp(px, tp):
+    """距止盈：现价还要再涨多少 %（以现价为分母）。"""
+    return (float(tp) - float(px)) / float(px) * 100
+
+
+def _resolve_sltp(row, px=None, my_sl=None, my_tp=None, cost=None):
+    """止损/止盈取值优先级（每一侧分别算）：
+    我的（页面/密钥里填的）> 已定（config 里用户确认的固定价）> 技术参考。
+    技术参考：已持有且知道成本时按成本算，否则按买点梯子算（云端 buy_table 里的 ref_sl/ref_tp）。
+    返回 {"sl","sl_src","tps":[...],"tp_src"}。"""
+    row = row or {}
+    out = {"sl": None, "sl_src": "", "tps": [], "tp_src": ""}
+    tech = None
+    if cost and cost > 0:
+        base_px = px if px else row.get("price")
+        if base_px:
+            tech = compute_tech_levels(base_px, [cost], row, basis="cost")
+    if my_sl:
+        out["sl"], out["sl_src"] = float(my_sl), "我的"
+    elif row.get("fixed_sl"):
+        out["sl"], out["sl_src"] = float(row["fixed_sl"]), "已定"
+    elif tech and tech.get("stop_loss"):
+        out["sl"], out["sl_src"] = float(tech["stop_loss"]), "技术参考·按成本"
+    elif row.get("ref_sl"):
+        out["sl"], out["sl_src"] = float(row["ref_sl"]), "技术参考"
+    if my_tp:
+        out["tps"], out["tp_src"] = [float(my_tp)], "我的"
+    elif row.get("fixed_tp"):
+        out["tps"], out["tp_src"] = [float(x) for x in row["fixed_tp"]], "已定"
+    elif tech and tech.get("take_profit"):
+        out["tps"], out["tp_src"] = [float(tech["take_profit"])], "技术参考·按成本"
+    elif row.get("ref_tp"):
+        out["tps"], out["tp_src"] = [float(row["ref_tp"])], "技术参考"
+    return out
+
+
 def _sltp_for_position(pos, data):
     row = _plan_row_for(data, pos["symbol"]) or {}
-    sl, tp, src = pos.get("sl"), pos.get("tp"), "我的"
-    if not sl and row.get("ref_sl"):
-        sl, src = row["ref_sl"], "技术参考"
-    if not tp and row.get("ref_tp"):
-        tp = row["ref_tp"]
-        if src != "我的" or not pos.get("sl"):
-            src = "技术参考" if not pos.get("sl") and not pos.get("tp") else src
-    # 若只覆盖了其中一侧，另一侧仍可用技术参考，来源写成「我的+参考」
-    used_mine = bool(pos.get("sl") or pos.get("tp"))
-    used_ref = (not pos.get("sl") and row.get("ref_sl")) or (not pos.get("tp") and row.get("ref_tp"))
-    if used_mine and used_ref:
-        src = "我的/参考"
-    elif used_mine:
-        src = "我的"
-    else:
-        src = "AI 参考" if row.get("sl_tp_source") == "ai" else "技术参考"
-    return sl, tp, src
+    rec = _lookup_quote(data, pos["symbol"]) or {}
+    px = rec.get("price") if rec.get("price") is not None else row.get("price")
+    return _resolve_sltp(row, px, pos.get("sl"), pos.get("tp"), pos.get("cost"))
+
+
+def _tp_tier_text(tps, px):
+    """止盈价位文字：单档「60」，两档「60 / 68」。"""
+    return " / ".join(_fpx(t) for t in tps)
+
+
+def _px_with_ext(rec, row, px, lab, pct):
+    """现价单元格：主行=常规收盘价和相对上一收盘的涨跌；第二行（参考）=盘前/盘后价，相对收盘。"""
+    if px is None:
+        return "无报价"
+    src = rec if rec.get("extended_price") is not None else row
+    ref = _ext_ref_text(src)
+    return f"{_fusd(px)} {_md(lab, 4)} {_fpct(pct, 2)}" + (f"<br>参考：{_md(ref, 40)}" if ref else "")
 
 
 def _build_holdings_push(data, holdings):
@@ -1657,31 +1926,41 @@ def _build_holdings_push(data, holdings):
             mv = qty * float(px)
             pl = mv - qty * cost
             plp = (float(px) / cost - 1) * 100 if cost > 0 else None
-            if prev is not None:
+            close_reg = rec.get("close") if rec.get("close") is not None else row.get("close")
+            if prev is not None and close_reg is not None:
+                day = qty * (float(close_reg) - float(prev))      # 常规时段今日盈亏；盘后波动不计入
+            elif prev is not None:
                 day = qty * (float(px) - float(prev))
             elif pct is not None:
                 day = mv - mv / (1 + float(pct) / 100.0)
-        sl, tp, src = _sltp_for_position(pos, data)
+        rs = _sltp_for_position(pos, data)
+        sl, tps = rs["sl"], rs["tps"]
         marks = []
         dist = []
         if sl:
             if px is not None and float(px) <= float(sl) + 1e-9:
                 marks.append("🚨已触及止损")
-                hit_alerts.append(f"**{pos['symbol']}** 现价 {_fusd(px)}，已触及{src}止损 {_fusd(sl)}。请整笔卖出，不要拆单。")
-                dist.append(f"🚨止损 {_fpx(sl)}（{src}）已触及")
+                hit_alerts.append(f"**{pos['symbol']}** 现价 {_fusd(px)}，已触及{rs['sl_src']}止损 {_fusd(sl)}。请整笔卖出，不要拆单。")
+                dist.append(f"🚨止损 {_fpx(sl)}（{rs['sl_src']}）已触及")
             elif px is not None:
-                dist.append(f"止损 {_fpx(sl)}（{src}）还差 {_fusd(float(px)-float(sl))}（{_fpct((float(px)/float(sl)-1)*100)}）")
+                dist.append(f"止损 {_fpx(sl)}（{rs['sl_src']}）：距现价 {_fusd(float(px)-float(sl))}，再跌 {_dist_to_stop(px, sl):.1f}% 触及")
             else:
-                dist.append(f"止损 {_fpx(sl)}（{src}）")
-        if tp:
-            if px is not None and float(px) >= float(tp) - 1e-9:
+                dist.append(f"止损 {_fpx(sl)}（{rs['sl_src']}）")
+        if tps:
+            if px is not None and float(px) >= float(tps[0]) - 1e-9:
                 marks.append("🚨已触及止盈")
-                hit_alerts.append(f"**{pos['symbol']}** 现价 {_fusd(px)}，已触及{src}止盈 {_fusd(tp)}。请整笔卖出，不要拆单。")
-                dist.append(f"🚨止盈 {_fpx(tp)}（{src}）已触及")
+                if len(tps) > 1:
+                    t2 = (f"第二档 {_fusd(tps[1])} 已触及" if float(px) >= float(tps[1]) - 1e-9
+                          else f"第二档 {_fusd(tps[1])} 还差再涨 {_dist_to_tp(px, tps[1]):.1f}%")
+                    hit_alerts.append(f"**{pos['symbol']}** 现价 {_fusd(px)}，已触及{rs['tp_src']}止盈第一档 {_fusd(tps[0])}（{t2}）。请按你已定的计划执行。")
+                else:
+                    hit_alerts.append(f"**{pos['symbol']}** 现价 {_fusd(px)}，已触及{rs['tp_src']}止盈 {_fusd(tps[0])}。请整笔卖出，不要拆单。")
+                dist.append(f"🚨止盈 {_tp_tier_text(tps, px)}（{rs['tp_src']}）已触及")
             elif px is not None:
-                dist.append(f"止盈 {_fpx(tp)}（{src}）还差 {_fusd(float(tp)-float(px))}（{_fpct((float(tp)/float(px)-1)*100)}）")
+                tier = "；".join((f"第{'一二'[i]}档 " if len(tps) > 1 else "") + f"{_fpx(t)} 再涨 {_dist_to_tp(px, t):.1f}%" for i, t in enumerate(tps))
+                dist.append(f"止盈（{rs['tp_src']}）：{tier}")
             else:
-                dist.append(f"止盈 {_fpx(tp)}（{src}）")
+                dist.append(f"止盈 {_tp_tier_text(tps, px)}（{rs['tp_src']}）")
         if not dist:
             dist.append("尚未设置止盈止损，也没有技术参考")
         acc = pos["account"]
@@ -1689,6 +1968,7 @@ def _build_holdings_push(data, holdings):
         lab = rec.get("price_label") or row.get("price_label") or "收盘"
         accounts[acc]["rows"].append({
             "symbol": pos["symbol"], "qty": qty, "cost": cost, "px": px, "lab": lab, "pct": pct,
+            "px_txt": _px_with_ext(rec, row, px, lab, pct),
             "day": day, "pl": pl, "plp": plp, "dist": "；".join(dist), "marks": marks,
         })
         if mv is not None:
@@ -1709,7 +1989,7 @@ def _build_holdings_push(data, holdings):
             qty_s = f"{r['qty']:.4f}".rstrip("0").rstrip(".")
             lines.append(
                 f"| {acc} | **{_md(r['symbol'], 10)}**{mk} | {qty_s} | {_fusd(r['cost'])} | "
-                f"{(_fusd(r['px'])+' '+_md(r['lab'],4)+' '+_fpct(r['pct'])) if r['px'] is not None else '无报价'} | "
+                f"{r['px_txt']} | "
                 f"{_fusd(r['day'], True)} | {_fusd(r['pl'], True)}" + (f"（{_fpct(r['plp'])}）" if r["plp"] is not None else "") +
                 f" | {_md(r['dist'], 80)} |"
             )
@@ -1748,7 +2028,7 @@ def build_push_text(data, ai_ok, holdings=None):
                   key=lambda r: (r.get("sort_gap_pct") is None, r.get("sort_gap_pct") if r.get("sort_gap_pct") is not None else 0))
     ordered = live + [r for r in rows if r.get("watch_only")]
     if ordered:
-        lines = ["### 👀 观察仓（按买点缺口排序）", "", "| 标的 | 现价 | 日涨跌 | 最近买点 | 缺口 | 止损/止盈参考 |", "|---|---|---|---|---|---|"]
+        lines = ["### 👀 观察仓（按买点缺口排序）", "", "| 标的 | 现价 | 日涨跌 | 最近买点 | 距买点 | 止损/止盈 |", "|---|---|---|---|---|---|"]
         for r in ordered:
             s = _canon(r.get("symbol"))
             observe_only = bool(r.get("kind") == "levered" and held_lev_set and s not in held_lev_set)
@@ -1766,19 +2046,30 @@ def build_push_text(data, ai_ok, holdings=None):
             if r.get("swapped_in"):
                 mark += " 🆕换入"
             sltp = ""
-            if r.get("ref_sl") or r.get("ref_tp"):
-                src = "AI" if r.get("sl_tp_source") == "ai" else "技术参考"
-                sltp = f"止损 {_fpx(r.get('ref_sl'))} / 止盈 {_fpx(r.get('ref_tp'))}（{src}）"
+            rs = _resolve_sltp(r, r.get("price"))
+            if rs["sl"] or rs["tps"]:
+                px0 = r.get("price")
+                dsl = dtp = ""
+                if rs["sl"] and px0:
+                    d_ = _dist_to_stop(px0, rs["sl"])
+                    dsl = f"，再跌 {d_:.1f}%" if d_ > 0 else "，现价已低于它"
+                if rs["tps"] and px0:
+                    d_ = _dist_to_tp(px0, rs["tps"][0])
+                    dtp = f"，再涨 {d_:.1f}%" if d_ > 0 else "，现价已高于它"
+                sltp = (f"止损 {_fpx(rs['sl'])}（{rs['sl_src'] or '—'}{dsl}）" if rs["sl"] else "止损 —") + " / " + \
+                       (f"止盈 {_tp_tier_text(rs['tps'], px0)}（{rs['tp_src'] or '—'}{dtp}）" if rs["tps"] else "止盈 —")
             gp = r.get("gap_pct")
             if r.get("watch_only") or observe_only:
                 gap = "不提示"
             elif gp is None:
                 gap = "—"
             elif gp <= 0:
-                gap = f"已到（{_fpct(gp)}）"
+                gap = "已到买点"
             else:
-                gap = f"还差 {_fpct(gp)}"
-            lines.append(f"| **{_md(r['symbol'], 10)}**{mark} | {_px_cell(r)} | {_fpct(r.get('change_pct'))} | {_fpx(r.get('nearest_level'))} | {gap} | {sltp or '—'} |")
+                gap = f"再跌 {gp:.1f}%"
+            ref_t = _ext_ref_text(r)
+            ref_t = f"<br>参考：{_md(ref_t, 40)}" if ref_t else ""
+            lines.append(f"| **{_md(r['symbol'], 10)}**{mark} | {_px_cell(r)}{ref_t} | {_fpct(r.get('change_pct'), 2)} | {_fpx(r.get('nearest_level'))} | {gap} | {sltp or '—'} |")
         notes = []
         for r in ordered:
             if r.get("kind") == "nvda" and r.get("watch_only"):
@@ -1789,8 +2080,8 @@ def build_push_text(data, ai_ok, holdings=None):
                 notes.append(f"ADBE：财报约北京时间 {ADBE_EARNINGS_BJ} 早上。")
         if notes:
             lines += [""] + [f"- {n}" for n in notes]
-        if any(r.get("ref_sl") or r.get("ref_tp") for r in ordered):
-            lines.append("\n止盈止损为参考（持有仓优先用你在密钥里填的价格），不是下单指令。已持有的杠杆 ETF 和 NVDA 触及卖点时，整笔卖出，不要拆单。")
+        if any(r.get("ref_sl") or r.get("ref_tp") or r.get("fixed_sl") or r.get("fixed_tp") for r in ordered):
+            lines.append("\n止盈止损取值优先级：你填的（我的）＞ 你已定的（已定）＞ 技术参考；距离都以现价为分母（再跌/再涨多少 %）。日涨跌是常规时段，盘后另标。不是下单指令。已持有的杠杆 ETF 和 NVDA 触及卖点时，按你已定的计划执行。")
         out.append("\n".join(lines))
 
     lev = plan.get("levered") or {}
@@ -1810,7 +2101,7 @@ def build_push_text(data, ai_ok, holdings=None):
 
     dca = [r for r in (plan.get("dca") or []) if isinstance(r, dict) and r.get("symbol")]
     if dca:
-        cells = "｜".join(f"{_md(r['symbol'], 8)} {('$' + _fpx(r.get('price'))) if r.get('price') is not None else '—'} {_fpct(r.get('change_pct'))}" for r in dca)
+        cells = "｜".join(f"{_md(r['symbol'], 8)} {('$' + _fpx(r.get('price'))) if r.get('price') is not None else '—'} {_fpct(r.get('change_pct'), 2)}" + (f"（参考：{_md(_ext_ref_text(r), 40)}）" if _ext_ref_text(r) else "") for r in dca)
         out.append(f"### 📌 定投\n{cells}\n每批执行完请取消定投，{DCA_DEADLINE[:4]} 年底前做完。")
 
     mv = plan.get("sp500_movers") or {}
@@ -1859,12 +2150,13 @@ def push_title(data, holdings=None):
         for pos in holdings.get("positions") or []:
             rec = _lookup_quote(data, pos["symbol"]) or _plan_row_for(data, pos["symbol"]) or {}
             px = rec.get("price")
-            sl, tp, _src = _sltp_for_position(pos, data)
+            rs = _sltp_for_position(pos, data)
+            sl, tps = rs["sl"], rs["tps"]
             if px is None:
                 continue
             if sl and float(px) <= float(sl) + 1e-9:
                 sell.append(pos["symbol"])
-            elif tp and float(px) >= float(tp) - 1e-9:
+            elif tps and float(px) >= float(tps[0]) - 1e-9:
                 sell.append(pos["symbol"])
     if sell:
         title += " 🚨" + "、".join(sell[:3])
@@ -1941,6 +2233,7 @@ def main():
     today_bj = now.strftime("%Y-%m-%d %H:%M")
     beijing_date = now.strftime("%Y-%m-%d")
     log(f"== 每日更新 {today_bj}（北京时间）==")
+    load_fixed_sltp(cfg)
     init_plan_state(prev_plan, beijing_date)
 
     # 自选 + 计划标的（计划标的拉盘后价）
