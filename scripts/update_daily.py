@@ -288,29 +288,8 @@ def _bars_from_history(h):
 
 
 def _fetch_issuer_notes(symbol):
-    """抓取发行人公开页并解析。失败就记 pending 所需的状态，不编造事件。"""
-    sym = str(symbol or "").upper()
-    urls = ISSUER_CHECK_URLS.get(sym) or []
-    notes, events = [], []
-    if not urls:
-        return notes, events
-    import requests as _req
-    for url in urls:
-        note = {"url": url, "http": None, "parsed": False, "events": 0}
-        try:
-            resp = _req.get(url, timeout=12, headers={"User-Agent": "invest-radar-split-check"})
-            note["http"] = int(resp.status_code)
-            if resp.status_code == 200 and resp.text:
-                found = parse_issuer_events(resp.text, sym)
-                note["parsed"] = True
-                note["events"] = len(found)
-                events.extend(found)
-            else:
-                note["error"] = "http"
-        except Exception as e:  # noqa: BLE001
-            note["error"] = type(e).__name__
-        notes.append(note)
-    return notes, events
+    """不再作为核对依据。公告正文解析不能代替人工确认表。"""
+    return [], []
 
 
 def _public_audit(audit):
@@ -340,9 +319,9 @@ def _attach_range(t, rec, sym=""):
         canon = str(sym or "").upper().replace("-", ".")
         if canon in ("BRK.B",):
             canon = "BRK.B"
-        notes, issuer_events = _fetch_issuer_notes(canon if canon in ISSUER_CHECK_URLS else sym)
         quote = rec.get("close") or rec.get("price")
-        audit = classify_adjustment(canon, bars, vendor_splits, issuer_events, notes, quote)
+        # auto_adjust 保持 False：True 会把分红调进 OHLC。Adj Close 即使存在也不采用。
+        audit = review_corporate_window(canon, bars, vendor_splits, quote)
         rec["hist_audit"] = _public_audit(audit)
         rec["atr_suspect"] = audit.get("status") != "verified"
         rec["range_note"] = (audit.get("note") or "")[:240]
@@ -1083,96 +1062,228 @@ def addon_conflicts(price, fixed_stop):
         return False
 
 
-def classify_adjustment(symbol, raw_bars, vendor_splits, issuer_events, fetch_notes, quote_close=None):
-    """失败即关闭。auto_adjust 或「两边都没看到拆股」都不能当成已核实。
+# 人工确认过的公司行为。比例用「新股数 / 旧股数」：20 for 1 是分子 20、分母 1 的正股拆分。
+# 只收录这次对照过发行人原文的事件。没有写进表的，不能靠「表是空的」当成已核实。
+# KORU 20-for-1 的依据是 Direxion 公告本身，不是一句没有具体网址的 “(sec)”。
+CONFIRMED_ACTIONS = [
+    {
+        "symbol": "KORU",
+        "ex_date": "2026-07-15",
+        "numerator": 20,
+        "denominator": 1,
+        "direction": "forward",
+        "source_url": "https://www.direxion.com/press-release/direxion-to-split-nine-etfs",
+        "evidence": "Direxion 2026-06-10 公告表格：KORU forward split 20 for 1；2026-07-15 起按拆股后价格交易。",
+        "status": "confirmed",
+    },
+    {
+        "symbol": "KORU",
+        "ex_date": "2025-02-10",
+        "numerator": 1,
+        "denominator": 10,
+        "direction": "reverse",
+        "source_url": "https://www.direxion.com/press-release/direxion-announces-reverse-split-of-koru",
+        "evidence": "Direxion 2025-01-10 只针对 KORU 的公告：每 10 股换成 1 股；2025-02-10 起按并股后价格交易。",
+        "status": "confirmed",
+    },
+    {
+        "symbol": "TQQQ",
+        "ex_date": "2025-11-20",
+        "numerator": 2,
+        "denominator": 1,
+        "direction": "forward",
+        "source_url": "https://www.proshares.com/press-releases/proshares-announces-etf-share-splits5",
+        "evidence": "ProShares 2025-11-04 公告：TQQQ 2:1，2025-11-20 开盘前生效。只确认这一次，不是说 TQQQ 以后不再拆股。",
+        "status": "confirmed",
+    },
+]
+# 隔夜收盘比接近这些倍数才标成疑似拆/并股。1.5 或 2 这种杠杆波动不在此列，也不据此宣称已经证实。
+_SUSPECT_RATIOS = (20.0, 10.0, 0.05, 0.1)
 
-    status: verified / unknown / failed / pending
-    只有 verified 才能写出技术参考价。
+
+def _action_ratio(ev):
+    return float(ev["numerator"]) / float(ev["denominator"])
+
+
+def suspicious_overnight(bars, band=0.12):
+    """补充检测。命中只表示疑似，不能代替确认表。"""
+    found = []
+    for i in range(1, len(bars or [])):
+        prev = bars[i - 1].get("close")
+        cur = bars[i].get("close")
+        try:
+            prev, cur = float(prev), float(cur)
+        except (TypeError, ValueError):
+            continue
+        if prev <= 0 or cur <= 0:
+            continue
+        ratio = cur / prev
+        near = None
+        for target in _SUSPECT_RATIOS:
+            if abs(ratio / target - 1) <= band:
+                near = target
+                break
+        if near is not None:
+            found.append({"date": bars[i]["date"], "observed": ratio, "near": near})
+    return found
+
+
+def _jump_at(bars, ex_date):
+    dates = [b["date"] for b in bars]
+    i = next((k for k, d in enumerate(dates) if d >= ex_date), None)
+    if i is None or i == 0:
+        return None
+    prev, cur = float(bars[i - 1]["close"]), float(bars[i]["close"])
+    if prev <= 0:
+        return None
+    return cur / prev
+
+
+def _adjust_mode(jump, share_ratio):
+    """share_ratio = 新股/旧股。未复权时价格大约变成 1/share_ratio。"""
+    if jump is None or jump <= 0 or share_ratio <= 0:
+        return "uncertain"
+    expected = 1.0 / share_ratio
+    if abs(jump / expected - 1) <= 0.25:
+        return "raw"
+    if 0.75 <= jump <= 1.35:
+        return "already"
+    return "uncertain"
+
+
+def _ohlc_only(bars):
+    """只用 OHLC。分红调整后的 Adj Close 即使附在旁边也不参与 ATR。"""
+    out = []
+    for b in bars or []:
+        out.append({k: b[k] for k in ("date", "open", "high", "low", "close")})
+    return out
+
+
+def review_corporate_window(symbol, raw_bars, vendor_splits, quote_close=None, table=None, auto_adjust=False):
+    """用人工确认表核对这一窗里的拆/并股。只做拆股复权，不做分红/全收益调整。
+
+    表和行情源不一致、隔夜比疑似拆股但表里没有、或者这一窗两边都空，都隐藏技术参考。
+    空窗只表示「这一窗没有已确认事件」，不是该品种永不拆股。
     """
     sym = str(symbol or "").upper()
-    notes = list(fetch_notes or [])
-    window_splits = []
-    if raw_bars:
-        first, last = raw_bars[0]["date"], raw_bars[-1]["date"]
-        for sp in vendor_splits or []:
-            day = str(sp.get("date") or "")[:10]
-            if first < day <= last:
-                window_splits.append({"date": day, "ratio": float(sp["ratio"])})
-        issuer_in = [e for e in (issuer_events or []) if first < e["date"] <= last]
-    else:
-        issuer_in = list(issuer_events or [])
+    bars = _ohlc_only(raw_bars)
     base = {
         "symbol": sym,
-        "basis": "current_per_share",
-        "method": "uniform_ohlc",
+        "basis": "split_only_current_share",
+        "dividend_adjusted": False,
+        "method": "uniform_ohlc_split_only",
         "atr_method": "wilder14",
-        "sources": notes,
-        "vendor_splits": window_splits,
-        "issuer_events": [{"date": e["date"], "ratio": e["ratio"], "kind": e["kind"], "label": e.get("label") or ""} for e in issuer_in],
         "hide_technical": True,
+        "sources": [],
     }
-    if not raw_bars:
-        base.update(status="pending", note="没有读到未复权 OHLC，技术参考先隐藏。")
+    if auto_adjust:
+        base.update(status="failed", note="auto_adjust=true 可能把分红算进 OHLC，不能用来做 ATR。")
         return base
-    fetched_ok = any(n.get("http") == 200 and n.get("parsed") is not False for n in notes)
-    if sym in ISSUER_CHECK_URLS and not notes:
-        base.update(status="pending", note="还没有发行人公告核对记录，技术参考先隐藏。")
+    if not bars:
+        base.update(status="pending", note="没有 OHLC，技术参考先隐藏。")
         return base
-    if sym in ISSUER_CHECK_URLS and not fetched_ok:
-        base.update(status="pending", note="发行人公开页面这次没有核对成功，技术参考先隐藏，不把缺少拆股记录当成已核实。")
+    first, last = bars[0]["date"], bars[-1]["date"]
+    table = CONFIRMED_ACTIONS if table is None else table
+    confirmed = []
+    for ev in table:
+        if str(ev.get("symbol") or "").upper() != sym or ev.get("status") != "confirmed":
+            continue
+        if not ev.get("source_url") or not str(ev.get("source_url")).startswith("http"):
+            continue
+        day = str(ev.get("ex_date") or "")[:10]
+        if first < day <= last:
+            confirmed.append(ev)
+    vendor = []
+    for sp in vendor_splits or []:
+        day = str(sp.get("date") or "")[:10]
+        if first < day <= last:
+            try:
+                vendor.append({"date": day, "ratio": float(sp["ratio"])})
+            except (TypeError, ValueError, KeyError):
+                base.update(status="failed", note="行情源拆股记录无法读取，技术参考隐藏。")
+                return base
+    confirmed_as_vendor = [{"date": e["ex_date"], "ratio": _action_ratio(e)} for e in confirmed]
+    jumps = suspicious_overnight(bars)
+    explained = {e["ex_date"] for e in confirmed}
+    unexplained = [j for j in jumps if j["date"] not in explained and not any(abs((datetime.strptime(j["date"], "%Y-%m-%d") - datetime.strptime(d, "%Y-%m-%d")).days) <= 4 for d in explained)]
+    if unexplained:
+        base.update(status="unknown", note="隔夜价格比接近 10 或 20 倍（或相反），但确认表没有对应事件。只当作不确定并隐藏，不把这段波动写成已证实的拆股。")
+        base["anomalies"] = unexplained
         return base
-    if window_splits or issuer_in:
-        if not _events_match(issuer_in, window_splits):
-            base.update(status="failed", note="发行人公告里的拆/并股和行情源记录对不上，技术参考隐藏。不靠涨跌倍数判断数据坏了。")
+    if not _events_match(confirmed_as_vendor, vendor):
+        base.update(status="failed", note="确认表和行情源在这一窗里的拆/并股不一致，技术参考隐藏。")
+        base["confirmed"] = [{"date": e["ex_date"], "numerator": e["numerator"], "denominator": e["denominator"], "url": e["source_url"]} for e in confirmed]
+        base["vendor_splits"] = vendor
+        return base
+    if not confirmed:
+        base.update(status="unknown", note="这一窗的确认表和行情源都没有拆股。这只说明本窗没有已确认事件，不能当成该品种永不拆股。技术参考继续隐藏。")
+        return base
+    to_apply = []
+    for ev in confirmed:
+        jump = _jump_at(bars, ev["ex_date"])
+        mode = _adjust_mode(jump, _action_ratio(ev))
+        if mode == "uncertain":
+            base.update(status="failed", note="除权日附近的价格跳空对不上「尚未复权」或「已经拆股复权」，为避免重复复权，技术参考隐藏。")
             return base
-    else:
-        # 窗口里两边都空：这只说明「没核对到事件」，不是「已证明没有事件」。
-        base.update(status="unknown", note="窗口内没有可与发行人公告对应的拆/并股事件。没有拆股记录本身不算已核实，技术参考隐藏。")
-        return base
+        if mode == "raw":
+            to_apply.append({"date": ev["ex_date"], "ratio": _action_ratio(ev)})
     try:
-        adjusted = adjust_ohlc_to_current(raw_bars, window_splits)
+        adjusted = adjust_ohlc_to_current(bars, to_apply) if to_apply else [dict(b, factor=1.0) for b in bars]
     except ValueError as e:
-        base.update(status="failed", note=f"OHLC 无法按同一比例复权（{e}），技术参考隐藏。")
+        base.update(status="failed", note=f"OHLC 无法按同一拆股因子复权（{e}）。分红调整不参与。")
         return base
-    if not _split_gap_closed(raw_bars, adjusted, window_splits):
-        base.update(status="failed", note="复权后拆股跳空仍在，或把已经复权的价格又除了一次。技术参考隐藏。")
+    if suspicious_overnight(adjusted):
+        base.update(status="failed", note="拆股复权之后仍有接近 10 或 20 倍的隔夜跳空，技术参考隐藏。")
         return base
     if quote_close:
-        last = adjusted[-1]["close"]
         try:
-            if not (0.85 <= float(last) / float(quote_close) <= 1.15):
-                base.update(status="failed", note="复权后的最后收盘和常规时段现价对不上，技术参考隐藏。")
+            if not (0.85 <= float(adjusted[-1]["close"]) / float(quote_close) <= 1.15):
+                base.update(status="failed", note="复权后的最后收盘和常规时段收盘对不上，技术参考隐藏。")
                 return base
         except (TypeError, ValueError, ZeroDivisionError):
-            base.update(status="failed", note="无法对照常规时段现价，技术参考隐藏。")
+            base.update(status="failed", note="无法对照常规时段收盘，技术参考隐藏。")
             return base
     highs = [b["high"] for b in adjusted]
     lows = [b["low"] for b in adjusted]
     closes = [b["close"] for b in adjusted]
     atr = wilder_atr14(highs, lows, closes)
     if atr is None:
-        base.update(status="failed", note="复权后的 K 线不足 15 根，Wilder ATR 无法取到前 14 个真实波幅的种子，技术参考隐藏。")
+        base.update(status="failed", note="拆股复权后的 K 线不足 15 根，Wilder ATR 没有种子，技术参考隐藏。")
         return base
-    seed_date = adjusted[14]["date"]
+    last_c = float(closes[-1])
     base.update(
         status="verified",
         hide_technical=False,
-        note="OHLC 已按发行人核对过的比例统一换算到当前每股口径，ATR 用 Wilder。",
+        note="这一窗里的拆/并股与确认表一致，OHLC 只做了拆股复权，没有做分红调整。",
         cutoff=adjusted[-1]["date"],
-        atr_seed_date=seed_date,
+        atr_seed_date=adjusted[14]["date"],
         atr14=round(float(atr), 4),
-        baseline=round(float(closes[-1]), 4),
+        atr_pct=round(float(atr) / last_c * 100, 2) if last_c else None,
+        baseline=round(last_c, 4),
         high_3m=round(max(highs[-63:]), 4),
         low_3m=round(min(lows[-63:]), 4),
         low_20d=round(min(lows[-20:]), 4),
         high_52w=round(max(highs), 4),
         low_52w=round(min(lows), 4),
-        source="未复权日线 OHLC（Open/High/Low/Close 同一因子）+ 发行人公开页面",
+        source="未复权 OHLC（不含分红）+ 人工确认表",
         formula="TR=max(H-L,|H-前收|,|L-前收|)；种子=前14个TR的平均；其后 ATR=(前ATR×13+TR)/14",
-        warmup="第 15 根 K 线才有第一颗 ATR（前 14 个真实波幅的平均）。再往前的日子不外推。",
+        warmup="第 15 根 K 线才有第一颗 ATR。再往前不外推。",
+        confirmed=[{"date": e["ex_date"], "numerator": e["numerator"], "denominator": e["denominator"],
+                    "direction": e["direction"], "url": e["source_url"]} for e in confirmed],
+        applied_splits=to_apply,
     )
-    base["_adjusted_count"] = len(adjusted)
     return base
+
+
+def classify_adjustment(*_args, **_kwargs):
+    """公告正文解析不再是核对依据。核实只走 review_corporate_window 和人工确认表。"""
+    return {
+        "status": "unknown",
+        "hide_technical": True,
+        "basis": "split_only_current_share",
+        "note": "公告文本解析不再作为核实依据。",
+    }
+
 
 
 def empty_hist_audit(symbol, status="unknown", note=""):
@@ -1222,13 +1333,10 @@ def compute_tech_levels(price, levels, st, basis="ladder"):
     except (TypeError, ValueError):
         return None
     core = sorted([float(x) for x in (levels or []) if x and float(x) > 0], reverse=True)
-    extras = []
     if not core:
-        # 没有既定梯子（例如新机会）：用现价和 1、2 倍 ATR 下方作为参考批次
         core = [price]
-        extras = [price - atr, price - 2 * atr]
-    low_core, high_core = min(core + extras), max(core)
-    avg_core = sum(core + extras) / len(core + extras)
+    low_core, high_core = min(core), max(core)
+    avg_core = sum(core) / len(core)
     sl = low_core - 1.5 * atr
     sl_how = "基准最低价下 1.5×ATR"
     l3, h3 = (st or {}).get("low_3m"), (st or {}).get("high_3m")
@@ -1250,17 +1358,6 @@ def compute_tech_levels(price, levels, st, basis="ladder"):
         pass
     if tp < high_core * 1.03:
         tp, tp_how = high_core * 1.03, "基准最高价的 103%"
-    if not extras:
-        e1 = low_core - atr
-        cand = [e1]
-        try:
-            if l3 and 0 < float(l3) < low_core - 0.3 * atr:
-                cand.append(float(l3))
-        except (TypeError, ValueError):
-            pass
-        for c in sorted(set(round(c, 4) for c in cand), reverse=True)[:2]:
-            if c > sl + 0.3 * atr and not any(_near(c, k) for k in core):
-                extras.append(c)
     sl = max(sl, 0.01)
     f = lambda v: (f"{v:.2f}" if v is not None else "—")
     base_txt = (f"你的成本 {f(core[0])}" if basis == "cost" and len(core) == 1
@@ -1270,7 +1367,7 @@ def compute_tech_levels(price, levels, st, basis="ladder"):
     return {
         "stop_loss": _px(sl),
         "take_profit": _px(tp),
-        "extra_tranches": [_px(x) for x in extras],
+        "extra_tranches": [],
         "executable_tranches": False,
         "reason": reason[:300],
         "url": "",
@@ -1322,17 +1419,8 @@ def _merge_level_advice(row, ai_bits, prev_row):
     row["sl_tp_url"] = a.get("url") or ""
     row["sl_tp_source"] = a.get("source") or row.get("sl_tp_source") or "technical"
     row["sl_tp_stale"] = bool(a.get("stale"))
-    extras = []
-    for x in a.get("extra_tranches") or []:
-        try:
-            x = float(x)
-        except (TypeError, ValueError):
-            continue
-        if x <= 0 or any(_near(x, c) for c in core + extras):
-            continue
-        extras.append(round(x, 4))
     row["extra_tranches"] = []
-    row["proposed_tranches"] = _proposed_from_extras(row, extras)
+    row["proposed_tranches"] = []
     row["tranche_levels"] = list(core)
     return row
 
@@ -2202,6 +2290,25 @@ def _session_px(*srcs):
     return None
 
 
+def _official_close(rec, row=None):
+    """已结束的常规时段收盘。盘中、盘前、盘后都不能触发止损止盈。"""
+    rec = rec if isinstance(rec, dict) else {}
+    row = row if isinstance(row, dict) else {}
+    lab = str(rec.get("price_label") or row.get("price_label") or "")
+    if lab in ("盘中", "即时报价", "盘前", "盘后"):
+        return None
+    if lab not in ("", "收盘"):
+        return None
+    for src in (rec, row):
+        try:
+            v = src.get("close")
+            if v is not None and float(v) > 0:
+                return float(v)
+        except (TypeError, ValueError):
+            continue
+    return None
+
+
 def _auto_ref(row, px=None, cost=None):
     """最新自动参考。未核实的历史（含旧数据缺 hist_audit）不返回价位，也不在浏览器侧用估算补上。"""
     row = row or {}
@@ -2295,15 +2402,7 @@ def _finalize_buy_row(row, ai_bits_tech, prev_row, adv_ai=None):
             row["ai_ref_tp"] = _r(a.get("take_profit"), 4)
         if a.get("reason"):
             row["ai_ref_reason"] = (a.get("reason") or "")[:300]
-        extra_px = [p["price"] for p in (row.get("proposed_tranches") or [])]
-        for x in a.get("extra_tranches") or []:
-            try:
-                x = float(x)
-            except (TypeError, ValueError):
-                continue
-            if x > 0:
-                extra_px.append(x)
-        row["proposed_tranches"] = _proposed_from_extras(row, extra_px)
+        row["proposed_tranches"] = []
     else:
         row["ai_ref_sl"] = None
         row["ai_ref_tp"] = None
@@ -2396,30 +2495,29 @@ def _build_holdings_push(data, holdings):
                 day = mv - mv / (1 + float(pct) / 100.0)
         rs = _sltp_for_position(pos, data)
         sl, tps = rs["sl"], rs["tps"]
+        close_px = _official_close(rec, row)
         marks = []
         dist = []
+        if close_px is None and (sl or tps):
+            dist.append("尚未确认常规收盘，止损和止盈都不触发")
         if sl:
-            if px is not None and float(px) <= float(sl) + 1e-9:
-                marks.append("🚨已触及止损")
-                hit_alerts.append(f"**{pos['symbol']}** 常规时段现价 {_fusd(px)}，已触及{rs['sl_src']}止损 {_fusd(sl)}。若卖出，整笔一次，不是自动下单。")
-                dist.append(f"🚨止损 {_fpx(sl)}（{rs['sl_src']}）已触及（对照常规时段现价）")
-            elif px is not None:
-                dist.append(f"止损 {_fpx(sl)}（{rs['sl_src']}）：再跌 {_dist_to_stop(px, sl):.1f}% 触及（分母：常规时段现价）")
+            if close_px is not None and float(close_px) <= float(sl) + 1e-9:
+                marks.append("🚨收盘触及止损")
+                hit_alerts.append(f"**{pos['symbol']}** 已确认常规收盘 {_fusd(close_px)}，触及{rs['sl_src']}止损 {_fusd(sl)}。这只是整笔卖出复核，不是下单，也不会自动改去看另一档。")
+                dist.append(f"🚨止损 {_fpx(sl)}（{rs['sl_src']}）收盘已触及（分母：已确认的常规收盘）")
+            elif close_px is not None:
+                dist.append(f"止损 {_fpx(sl)}（{rs['sl_src']}）：再跌 {_dist_to_stop(close_px, sl):.1f}% 才到（分母：已确认的常规收盘）")
             else:
                 dist.append(f"止损 {_fpx(sl)}（{rs['sl_src']}）")
         if tps:
-            if px is not None and float(px) >= float(tps[0]) - 1e-9:
-                marks.append("🚨已触及止盈")
-                if len(tps) > 1:
-                    hit_alerts.append(
-                        f"**{pos['symbol']}** 常规时段现价 {_fusd(px)}，已到{rs['tp_src']}止盈复核价 {_fusd(tps[0])}。"
-                        f"另一档 {_fusd(tps[1])} 只是复核价，不是自动分批卖出。若卖出，整笔一次。")
-                else:
-                    hit_alerts.append(f"**{pos['symbol']}** 常规时段现价 {_fusd(px)}，已到{rs['tp_src']}止盈 {_fusd(tps[0])}。若卖出，整笔一次，不是自动下单。")
-                dist.append(f"🚨止盈复核 {_tp_tier_text(tps, px)}（{rs['tp_src']}，整笔一次，不是分批自动卖）")
-            elif px is not None:
-                tier = "；".join((f"第{'一二'[i]}档 " if len(tps) > 1 else "") + f"{_fpx(t)} 再涨 {_dist_to_tp(px, t):.1f}%（分母：常规时段现价）" for i, t in enumerate(tps))
-                dist.append(f"止盈复核（{rs['tp_src']}，两档都不是自动分批卖出）：{tier}" if len(tps) > 1 else f"止盈（{rs['tp_src']}）：{tier}")
+            if close_px is not None and float(close_px) >= float(tps[0]) - 1e-9:
+                marks.append("🚨收盘到止盈复核")
+                both = f"两档 {_fusd(tps[0])} 和 {_fusd(tps[1])} 都是整笔卖出复核，先到的一档不会改去盯另一档。" if len(tps) > 1 else f"止盈 {_fusd(tps[0])} 是整笔卖出复核。"
+                hit_alerts.append(f"**{pos['symbol']}** 已确认常规收盘 {_fusd(close_px)}，{both}不是下单。")
+                dist.append(f"🚨止盈复核 {_tp_tier_text(tps, close_px)}（{rs['tp_src']}，两档都是整笔复核，分母：已确认的常规收盘）" if len(tps) > 1 else f"🚨止盈复核 {_tp_tier_text(tps, close_px)}（分母：已确认的常规收盘）")
+            elif close_px is not None:
+                tier = "；".join((f"第{'一二'[i]}档 " if len(tps) > 1 else "") + f"{_fpx(t)} 再涨 {_dist_to_tp(close_px, t):.1f}%（分母：已确认的常规收盘）" for i, t in enumerate(tps))
+                dist.append(f"止盈复核（{rs['tp_src']}，两档各自整笔复核，先到的不切换目标）：{tier}" if len(tps) > 1 else f"止盈（{rs['tp_src']}）：{tier}")
             else:
                 dist.append(f"止盈 {_tp_tier_text(tps, px)}（{rs['tp_src']}）")
         ref = rs.get("ref") or {}
@@ -2643,11 +2741,12 @@ def push_title(data, holdings=None):
             px = rec.get("price")
             rs = _sltp_for_position(pos, data)
             sl, tps = rs["sl"], rs["tps"]
-            if px is None:
+            close_px = _official_close(rec, _plan_row_for(data, pos["symbol"]) or {})
+            if close_px is None:
                 continue
-            if sl and float(px) <= float(sl) + 1e-9:
+            if sl and float(close_px) <= float(sl) + 1e-9:
                 sell.append(pos["symbol"])
-            elif tps and float(px) >= float(tps[0]) - 1e-9:
+            elif tps and float(close_px) >= float(tps[0]) - 1e-9:
                 sell.append(pos["symbol"])
     if sell:
         title += " 🚨" + "、".join(sell[:3])

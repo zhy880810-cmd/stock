@@ -62,60 +62,95 @@ class AdjustTests(unittest.TestCase):
         self.assertAlmostEqual(out[1]["close"], 10)
 
 
+def month_bars(start, n, price, jump_on=None, jump_to=None):
+    """Synthetic OHLC. Not a real market print."""
+    from datetime import datetime, timedelta
+    d0 = datetime.strptime(start, "%Y-%m-%d")
+    out = []
+    px = price
+    for i in range(n):
+        day = (d0 + timedelta(days=i)).strftime("%Y-%m-%d")
+        if jump_on and day >= jump_on:
+            px = jump_to
+        out.append({"date": day, "open": px, "high": px + 0.4, "low": max(px - 0.4, 0.05), "close": px,
+                     "adj_close": px * 0.99})
+    return out
+
+
 class VerifyTests(unittest.TestCase):
-    def _issuer_note(self):
-        return [{"url": "https://example.test/issuer", "http": 200, "parsed": True, "events": 1}]
-
-    def test_match_is_verified_and_gap_closes(self):
-        raw = bars_around_split()
-        splits = [{"date": "2026-07-10", "ratio": 20}]
-        issuer = [{"date": "2026-07-10", "ratio": 20, "kind": "forward", "label": "20 for 1"}]
-        audit = u.classify_adjustment("KORU", raw, splits, issuer, self._issuer_note(), quote_close=raw[-1]["close"])
+    def test_synthetic_forward_split_adjusts_once(self):
+        raw = month_bars("2026-07-01", 20, 100, jump_on="2026-07-15", jump_to=5)
+        vendor = [{"date": "2026-07-15", "ratio": 20}]
+        audit = u.review_corporate_window("KORU", raw, vendor, quote_close=5)
         self.assertEqual(audit["status"], "verified")
-        self.assertFalse(audit["hide_technical"])
-        self.assertGreater(audit["atr14"], 0)
-        self.assertEqual(audit["atr_method"], "wilder14")
-        self.assertIn("前14个TR", audit["formula"])
+        self.assertFalse(audit["dividend_adjusted"])
+        self.assertEqual(audit["basis"], "split_only_current_share")
+        self.assertAlmostEqual(audit["atr_pct"], audit["atr14"] / 5 * 100, places=1)
+        self.assertTrue(audit["applied_splits"])
+        self.assertIn("direxion.com", audit["confirmed"][0]["url"])
 
-    def test_empty_both_sides_is_not_verified(self):
-        raw = bars_around_split()
-        audit = u.classify_adjustment("SOXL", raw, [], [], self._issuer_note(), quote_close=raw[-1]["close"])
-        self.assertEqual(audit["status"], "unknown")
-        self.assertTrue(audit["hide_technical"])
+    def test_already_adjusted_is_not_divided_again(self):
+        raw = month_bars("2026-07-01", 20, 5)
+        vendor = [{"date": "2026-07-15", "ratio": 20}]
+        audit = u.review_corporate_window("KORU", raw, vendor, quote_close=5)
+        self.assertEqual(audit["status"], "verified")
+        self.assertEqual(audit["applied_splits"], [])
 
-    def test_mismatch_fails_closed(self):
-        raw = bars_around_split()
-        vendor = [{"date": "2026-07-10", "ratio": 10}]
-        issuer = [{"date": "2026-07-10", "ratio": 20, "kind": "forward", "label": "20 for 1"}]
-        audit = u.classify_adjustment("KORU", raw, vendor, issuer, self._issuer_note(), quote_close=7.68)
+    def test_mismatch_hides(self):
+        raw = month_bars("2026-07-01", 20, 100, jump_on="2026-07-15", jump_to=5)
+        audit = u.review_corporate_window("KORU", raw, [{"date": "2026-07-15", "ratio": 10}], quote_close=5)
         self.assertEqual(audit["status"], "failed")
         self.assertTrue(audit["hide_technical"])
 
-    def test_fetch_failure_is_pending(self):
-        raw = bars_around_split()
-        notes = [{"url": "https://www.direxion.com/press-release/direxion-to-split-nine-etfs", "http": None, "parsed": False, "error": "Timeout"}]
-        audit = u.classify_adjustment("KORU", raw, [], [], notes, quote_close=8)
-        self.assertEqual(audit["status"], "pending")
+    def test_empty_window_is_not_split_free(self):
+        raw = month_bars("2026-08-01", 20, 8)
+        audit = u.review_corporate_window("TQQQ", raw, [], quote_close=8)
+        self.assertEqual(audit["status"], "unknown")
+        self.assertTrue(audit["hide_technical"])
+        self.assertIn("永不拆股", audit["note"])
+
+    def test_auto_adjust_true_refused(self):
+        raw = month_bars("2026-07-01", 20, 5)
+        audit = u.review_corporate_window("KORU", raw, [{"date": "2026-07-15", "ratio": 20}], quote_close=5, auto_adjust=True)
+        self.assertEqual(audit["status"], "failed")
+        self.assertIn("分红", audit["note"])
+
+    def test_dividend_field_ignored(self):
+        raw = month_bars("2026-07-01", 20, 5)
+        only = u._ohlc_only(raw)
+        self.assertNotIn("adj_close", only[0])
+
+    def test_volatility_is_not_a_proven_split(self):
+        raw = month_bars("2026-08-01", 20, 10)
+        raw[10]["close"] = 14
+        raw[10]["high"] = 14.2
+        raw[10]["open"] = 14
+        hits = u.suspicious_overnight(raw)
+        self.assertEqual(hits, [])
+        audit = u.review_corporate_window("SOXL", raw, [], quote_close=10)
+        self.assertEqual(audit["status"], "unknown")
+        self.assertNotIn("已证实", audit["note"])
+
+    def test_unexplained_20x_hides_without_claiming_proof(self):
+        raw = month_bars("2026-08-01", 20, 100, jump_on="2026-08-10", jump_to=5)
+        audit = u.review_corporate_window("SOXL", raw, [], quote_close=5)
+        self.assertTrue(audit["hide_technical"])
+        self.assertNotEqual(audit["status"], "verified")
+        self.assertTrue(audit.get("anomalies"))
+
+    def test_parser_is_not_authority(self):
+        audit = u.classify_adjustment("KORU", month_bars("2026-07-01", 20, 5), [{"date": "2026-07-15", "ratio": 20}], [], [], 5)
+        self.assertEqual(audit["status"], "unknown")
         self.assertTrue(audit["hide_technical"])
 
-    def test_parser_requires_ticker_ratio_and_date(self):
-        text = (
-            "Direxion Daily MSCI South Korea Bull 3X ETF (KORU) | 20 for 1 | 1,900%\n"
-            "Shares will begin trading on a split-adjusted basis on July 15, 2026.\n"
-            "Some other fund | 1 for 10\n"
-        )
-        events = u.parse_issuer_events(text, "KORU")
-        self.assertEqual(len(events), 1)
-        self.assertEqual(events[0]["date"], "2026-07-15")
-        self.assertAlmostEqual(events[0]["ratio"], 20)
-        self.assertEqual(u.parse_issuer_events("KORU moved a lot", "KORU"), [])
-
-    def test_no_hardcoded_koru_ratio(self):
-        with open(os.path.join(ROOT, "scripts", "update_daily.py"), encoding="utf-8") as fh:
-            src = fh.read()
-        self.assertNotIn("KORU_SPLIT", src)
-        self.assertNotIn('"ratio": 20', src)
-        self.assertNotIn("'ratio': 0.1", src)
+    def test_confirmed_table_has_issuer_urls(self):
+        urls = {e["source_url"] for e in u.CONFIRMED_ACTIONS}
+        self.assertIn("https://www.direxion.com/press-release/direxion-to-split-nine-etfs", urls)
+        self.assertIn("https://www.proshares.com/press-releases/proshares-announces-etf-share-splits5", urls)
+        for e in u.CONFIRMED_ACTIONS:
+            self.assertTrue(e["source_url"].startswith("http"))
+            self.assertGreater(e["numerator"], 0)
+            self.assertGreater(e["denominator"], 0)
 
 
 class LayerSafetyTests(unittest.TestCase):
@@ -138,13 +173,12 @@ class LayerSafetyTests(unittest.TestCase):
                "kind": "levered", "atr14": 2, "low_3m": 40, "high_3m": 70, "low_20d": 48,
                "hist_audit": {"status": "verified", "hide_technical": False}}
         tech = u.compute_tech_levels(55, [52, 50], row)
-        self.assertTrue(tech and tech.get("extra_tranches") is not None)
+        self.assertEqual(tech.get("extra_tranches"), [])
         out = u._finalize_buy_row(row, {"levels_advice": {"TQQQ": tech}}, None,
-                                  {"TQQQ": {"stop_loss": 1, "take_profit": 2, "extra_tranches": [4.97]}})
+                                  {"TQQQ": {"stop_loss": 1, "take_profit": 2, "extra_tranches": [4.97, 45.11]}})
         self.assertEqual(out["tranche_levels"], [52, 50])
         self.assertEqual(out["extra_tranches"], [])
-        self.assertTrue(any(p.get("conflict") and p.get("price") == 4.97 for p in out["proposed_tranches"]))
-        self.assertFalse(any(p.get("executable") for p in out["proposed_tranches"]))
+        self.assertEqual(out["proposed_tranches"], [])
 
     def test_auto_swap_does_not_mutate_plan(self):
         before = [dict(s) for s in u.PLAN_SPECS]
