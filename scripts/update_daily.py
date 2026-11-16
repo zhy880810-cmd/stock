@@ -321,18 +321,48 @@ def _attach_range(t, rec, sym=""):
             canon = "BRK.B"
         quote = rec.get("close") or rec.get("price")
         # auto_adjust 保持 False：True 会把分红调进 OHLC。Adj Close 即使存在也不采用。
-        audit = review_corporate_window(canon, bars, vendor_splits, quote)
-        rec["hist_audit"] = _public_audit(audit)
-        rec["atr_suspect"] = audit.get("status") != "verified"
-        rec["range_note"] = (audit.get("note") or "")[:240]
-        if audit.get("status") == "verified":
-            rec["atr14"] = audit.get("atr14")
-            rec["high_52w"] = audit.get("high_52w")
-            rec["low_52w"] = audit.get("low_52w")
-            rec["high_3m"] = audit.get("high_3m")
-            rec["low_3m"] = audit.get("low_3m")
-            rec["low_20d"] = audit.get("low_20d")
-            rec["high_20d"] = None
+        if _is_etf_audit(canon):
+            audit = review_corporate_window(canon, bars, vendor_splits, quote)
+            rec["hist_audit"] = _public_audit(audit)
+            rec["atr_suspect"] = audit.get("status") != "verified"
+            rec["range_note"] = (audit.get("note") or "")[:240]
+            if audit.get("status") == "verified":
+                rec["atr14"] = audit.get("atr14")
+                rec["high_52w"] = audit.get("high_52w")
+                rec["low_52w"] = audit.get("low_52w")
+                rec["high_3m"] = audit.get("high_3m")
+                rec["low_3m"] = audit.get("low_3m")
+                rec["low_20d"] = audit.get("low_20d")
+                rec["high_20d"] = None
+            elif (audit.get("components") or {}).get("lookback", {}).get("state") == "校验通过":
+                rec["high_3m"] = audit.get("high_3m")
+                rec["low_3m"] = audit.get("low_3m")
+        else:
+            # 普通股票不走三只杠杆 ETF 的公司行为门。仍用未复权 OHLC 和原来的坏点防护。
+            h2, notes = _sanitize_history(h, canon)
+            bars2, _ = _bars_from_history(h2) if h2 is not None and len(h2) else (bars, vendor_splits)
+            highs = [b["high"] for b in bars2]
+            lows = [b["low"] for b in bars2]
+            closes = [b["close"] for b in bars2]
+            atr = wilder_atr14(highs, lows, closes) if len(closes) >= 15 else None
+            rec["hist_audit"] = {
+                "symbol": canon, "status": "ordinary", "hide_technical": False,
+                "basis": "split_only_current_share", "dividend_adjusted": False,
+                "source": "未复权 OHLC + 原有坏点/跳变防护",
+                "cutoff": bars2[-1]["date"] if bars2 else None,
+                "note": "".join(notes)[:240] if notes else "普通标的，不做杠杆 ETF 公司行为专项校验。",
+            }
+            rec["atr_suspect"] = atr is None
+            rec["range_note"] = (rec["hist_audit"]["note"] or "")[:240]
+            if atr is not None and closes[-1] > 0:
+                cap = 0.20 if _is_levered_yf(canon) else 0.12
+                if atr / closes[-1] <= cap:
+                    rec["atr14"] = round(float(atr), 4)
+                    rec["high_52w"] = round(max(highs), 4)
+                    rec["low_52w"] = round(min(lows), 4)
+                    rec["high_3m"] = round(max(highs[-63:]), 4)
+                    rec["low_3m"] = round(min(lows[-63:]), 4)
+                    rec["low_20d"] = round(min(lows[-20:]), 4)
     except Exception:  # noqa: BLE001
         rec["hist_audit"] = empty_hist_audit(sym, "pending", "复权校验没有完成，技术参考先隐藏。")
         rec["atr_suspect"] = True
@@ -1159,7 +1189,48 @@ def _ohlc_only(bars):
     return out
 
 
-def review_corporate_window(symbol, raw_bars, vendor_splits, quote_close=None, table=None, auto_adjust=False):
+def wilder_post_split(bars, d0, prev_close=None, prev_unified=False):
+    """从拆股后的第一根 D0 重新做 Wilder，不用拆股前的 TR 冒充全序列。
+
+    前收不是同一口径：不算 D0 的 TR，D1 用 D0 的收盘。14 个 TR 种子需要 D0..D14 共 15 根。
+    前收已是同一口径：可以算 D0 的 TR。种子仍是连续 14 个 TR，之后按 (前值×13+TR)/14 递推。
+    """
+    seg = [b for b in (bars or []) if str(b.get("date") or "") >= str(d0)]
+    n = len(seg)
+    if n == 0:
+        return None, 0, "拆股后没有 K 线"
+
+    def tr(bar, prev_c):
+        return max(float(bar["high"]) - float(bar["low"]), abs(float(bar["high"]) - float(prev_c)), abs(float(bar["low"]) - float(prev_c)))
+
+    trs = []
+    if prev_unified and prev_close and float(prev_close) > 0:
+        trs.append(tr(seg[0], prev_close))
+        for i in range(1, n):
+            trs.append(tr(seg[i], seg[i - 1]["close"]))
+        if len(trs) < 14:
+            return None, n, "同一口径前收可以算 D0 的 TR，但拆股后不足 14 个 TR"
+    else:
+        if n < 15:
+            return None, n, "前收不是同一口径，已排除 D0 的 TR。需要拆股后连续 15 根（D0 到 D14）才能做 14 个 TR 的种子"
+        for i in range(1, n):
+            trs.append(tr(seg[i], seg[i - 1]["close"]))
+    atr = sum(trs[:14]) / 14.0
+    for item in trs[14:]:
+        atr = (atr * 13.0 + item) / 14.0
+    return atr, n, "仅基于拆股后%d个交易日" % n
+
+
+def _coverage_current(symbol, last, coverage):
+    cov = ACTION_COVERAGE if coverage is None else coverage
+    if not cov or cov.get("maintained_current") is not True:
+        return False
+    spec = (cov.get("symbols") or {}).get(str(symbol or "").upper()) or {}
+    thru = spec.get("complete_through")
+    return bool(thru) and str(thru) >= str(last)
+
+
+def review_corporate_window(symbol, raw_bars, vendor_splits, quote_close=None, table=None, auto_adjust=False, coverage=None):
     """用人工确认表核对这一窗里的拆/并股。只做拆股复权，不做分红/全收益调整。
 
     表和行情源不一致、隔夜比疑似拆股但表里没有、或者这一窗两边都空，都隐藏技术参考。
@@ -1216,7 +1287,26 @@ def review_corporate_window(symbol, raw_bars, vendor_splits, quote_close=None, t
         base["vendor_splits"] = vendor
         return base
     if not confirmed:
-        base.update(status="unknown", note="这一窗的确认表和行情源都没有拆股。这只说明本窗没有已确认事件，不能当成该品种永不拆股。技术参考继续隐藏。")
+        if not _coverage_current(sym, last, coverage):
+            base.update(status="unknown", note="未校验。这一窗没有已确认事件，覆盖日也没有证明到窗口最后一天，检查不可用。不能当成没有公司行为，更不是该品种永不拆股。")
+            base["components"] = {"atr": {"state": "未校验", "reason": "覆盖不足"}, "lookback": {"state": "未校验", "reason": "覆盖不足"}}
+            return base
+        atr, n, label = wilder_post_split(bars, bars[0]["date"], prev_unified=False)
+        if atr is None:
+            base.update(status="unknown", hide_technical=True, note="未校验。" + label)
+            base["components"] = {"atr": {"state": "未校验", "reason": label}, "lookback": {"state": "未校验", "reason": "样本不足"}}
+            return base
+        last_c = float(bars[-1]["close"])
+        base.update(
+            status="verified", hide_technical=False,
+            note="校验通过。覆盖已声明到本窗，窗内没有公司行为，ATR " + label + "。这不是说该品种以后不再拆股。",
+            cutoff=bars[-1]["date"], atr14=round(float(atr), 4),
+            atr_pct=round(float(atr) / last_c * 100, 2) if last_c else None,
+            baseline=round(last_c, 4), post_split_sessions=n, atr_label=label,
+            source="拆股后连续 OHLC（不含分红）+ 已声明的覆盖日",
+            formula="TR=max(H-L,|H-前收|,|L-前收|)；种子=前14个TR的平均；其后 ATR=(前ATR×13+TR)/14",
+            components={"atr": {"state": "校验通过", "reason": label}, "lookback": {"state": "未校验", "reason": "只验证了拆股后的 ATR 窗口，不自动批准更长的高低点"}},
+        )
         return base
     to_apply = []
     for ev in confirmed:
@@ -1246,17 +1336,36 @@ def review_corporate_window(symbol, raw_bars, vendor_splits, quote_close=None, t
     highs = [b["high"] for b in adjusted]
     lows = [b["low"] for b in adjusted]
     closes = [b["close"] for b in adjusted]
-    atr = wilder_atr14(highs, lows, closes)
+    d0 = max(e["ex_date"] for e in confirmed)
+    d0_i = next(i for i, b in enumerate(adjusted) if b["date"] >= d0)
+    prev_c = adjusted[d0_i - 1]["close"] if d0_i > 0 else None
+    atr, n_post, atr_label = wilder_post_split(adjusted, d0, prev_close=prev_c, prev_unified=prev_c is not None)
+    lookback_ok = True
+    look_reason = "高低点用的是同一拆股口径的整段，不拿未对齐的拆股前价格。"
+    components = {
+        "splits": {"state": "校验通过", "reason": "确认表与行情源一致，且没有重复复权。"},
+        "lookback": {"state": "校验通过", "reason": look_reason} if lookback_ok else {"state": "未校验", "reason": look_reason},
+    }
     if atr is None:
-        base.update(status="failed", note="拆股复权后的 K 线不足 15 根，Wilder ATR 没有种子，技术参考隐藏。")
+        components["atr"] = {"state": "未校验", "reason": atr_label}
+        base.update(
+            status="unknown", hide_technical=True,
+            note="校验失败项没有混进通过项。拆股核对通过，但 ATR 未校验：" + atr_label,
+            components=components, applied_splits=to_apply, post_split_sessions=n_post,
+            confirmed=[{"date": e["ex_date"], "numerator": e["numerator"], "denominator": e["denominator"],
+                        "direction": e["direction"], "url": e["source_url"]} for e in confirmed],
+            high_3m=round(max(highs[-63:]), 4), low_3m=round(min(lows[-63:]), 4),
+            source="未复权 OHLC（不含分红）+ 人工确认表",
+        )
         return base
+    components["atr"] = {"state": "校验通过", "reason": atr_label}
     last_c = float(closes[-1])
     base.update(
         status="verified",
         hide_technical=False,
-        note="这一窗里的拆/并股与确认表一致，OHLC 只做了拆股复权，没有做分红调整。",
+        note="校验通过。拆股后的 ATR 重新起算，" + atr_label + "。OHLC 只做拆股复权，不含分红。",
         cutoff=adjusted[-1]["date"],
-        atr_seed_date=adjusted[14]["date"],
+        atr_seed_date=d0,
         atr14=round(float(atr), 4),
         atr_pct=round(float(atr) / last_c * 100, 2) if last_c else None,
         baseline=round(last_c, 4),
@@ -1265,12 +1374,15 @@ def review_corporate_window(symbol, raw_bars, vendor_splits, quote_close=None, t
         low_20d=round(min(lows[-20:]), 4),
         high_52w=round(max(highs), 4),
         low_52w=round(min(lows), 4),
+        post_split_sessions=n_post,
+        atr_label=atr_label,
         source="未复权 OHLC（不含分红）+ 人工确认表",
         formula="TR=max(H-L,|H-前收|,|L-前收|)；种子=前14个TR的平均；其后 ATR=(前ATR×13+TR)/14",
-        warmup="第 15 根 K 线才有第一颗 ATR。再往前不外推。",
+        warmup=atr_label + "。不是拿拆股前的 14 天冒充全序列。",
         confirmed=[{"date": e["ex_date"], "numerator": e["numerator"], "denominator": e["denominator"],
                     "direction": e["direction"], "url": e["source_url"]} for e in confirmed],
         applied_splits=to_apply,
+        components=components,
     )
     return base
 
@@ -1297,8 +1409,29 @@ def empty_hist_audit(symbol, status="unknown", note=""):
     }
 
 
+ETF_AUDIT_SYMS = ("TQQQ", "SOXL", "KORU")
+# 覆盖日只说明这些事件何时被对照过。complete_through 为空 = 没有证明表是最新的，不能当成“没有更多公司行为”。
+ACTION_COVERAGE = {
+    "reviewed_on": "2026-11-16",
+    "maintained_current": False,
+    "symbols": {
+        "KORU": {"complete_through": None, "reason": "只核对了表内两笔 KORU 事件，没有证明其后没有新的公司行为。"},
+        "TQQQ": {"complete_through": None, "reason": "只核对了 2025-11-20 的 2 合 1，没有证明其他窗口没有拆股。"},
+        "SOXL": {"complete_through": None, "reason": "没有已确认的 SOXL 事件，也没有证明某一窗内没有公司行为。"},
+    },
+}
+
+
+def _is_etf_audit(symbol):
+    return str(symbol or "").upper() in ETF_AUDIT_SYMS
+
+
 def technical_allowed(row):
-    """旧 data.json 没有 hist_audit 时视为未核实，不能拿 atr/高低点在本地编一个参考价。"""
+    """公司行为的失败即关闭只用于 TQQQ / SOXL / KORU。
+    NVDA、ADBE、BRK.B 等仍用原有技术参考；坏数据继续走原来的涨跌和高低点防护，不因为没有 ETF 校验记录就整段隐藏。"""
+    sym = str((row or {}).get("symbol") or "").upper()
+    if not _is_etf_audit(sym):
+        return True
     audit = (row or {}).get("hist_audit")
     if not isinstance(audit, dict):
         return False
