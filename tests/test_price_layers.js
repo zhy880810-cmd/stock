@@ -98,6 +98,14 @@ const heldPos = positionMode({hasQty:true, levHeldCount:1});
 assert(heldPos.showHoldingStats && heldPos.historicalLadder && !heldPos.blockNewExecutable, 'one holding shows stats and does not block its own stop');
 const multiPos = positionMode({hasQty:true, levHeldCount:2});
 assert(multiPos.blockNewExecutable && multiPos.wholePosition, 'two leveraged holdings block new executable advice');
+assert(visibleAddons({extra_tranches:[45.11, 4.97], proposed_tranches:[{price:4.97}]}).length === 0, 'generated add-ons are not shown');
+assert(visibleAddons({confirmed_addons:[40]}).length === 1, 'only an explicit confirmed add-on is visible');
+const bufs = atrBuffers([52, 50], 45, 2);
+assert(bufs.length === 2 && deepestBuffer(bufs).entry === 50 && deepestBuffer(bufs).multiple === 2.5, 'deepest entry has the smaller ATR buffer');
+assert(Number.isNaN(officialClosePx({price:48, price_label:'盘中', close:47})), 'intraday quote is not an official close');
+assert(officialClosePx({price:48, close:47, price_label:'收盘'}) === 47, 'confirmed close is used');
+const touched = {price:40, close:50, price_label:'盘中'};
+assert(Number.isNaN(officialClosePx(touched)), 'a live print below the stop does not become a close');
 
 if (failed) {
   console.error('\n' + failed + ' failed');
