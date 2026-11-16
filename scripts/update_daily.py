@@ -4,7 +4,7 @@
 
 - 不含任何持仓数量/成本/金额（隐私默认）。公开文件只写代码、价格、买点缺口和新闻。
 - 买点表、定投收盘价、距买点跌幅、标普 500 涨跌幅、止损/止盈/补充批次（技术参考：ATR + 近期高低点）均在本地计算，不由模型编造。
-- 止损/止盈优先级：我的（网页/HOLDINGS_JSON）＞ 已定（config.json 的 agreed_sltp，合并进 plan.active）＞ 技术参考；所有距离以现价为分母；日涨跌为常规时段，盘后单列。
+- 止损/止盈分两层：执行价（我的＞已定＞技术参考，触发/距离/预警/微信推送都用它）和最新参考价（ATR/高低点技术计算，以及既有的 AI 策略参考）。参考价始终单独写出并显示，不会自动覆盖执行价。所有距离以常规时段现价为分母；日涨跌为常规时段，盘后单列。
 - AI（Grok / Gemini）主流程只调用一次，只负责：标普 500 涨跌榜每只一句原因、1–3 条大新闻（各附一个链接）、至多一条明显更好的机会（只给代码和理由，价格仍由本地算）。若这次返回无法解析为 JSON，再追加一次很短的「只输出 JSON」修复调用。
 - 明显更好的机会会由脚本直接自动替换计划里被点名的标的（无需用户确认）：当前计划写在 data.json 的 plan.active（只有代码、买点、名称），config.json 只是首次的种子；替换记录写在 plan.swap_log。被换出的标的进入 plan.retired（网页上只在你标记已买入/持仓里有它时继续显示止损止盈）。
 - 若设置了 SERVERCHAN_KEY，每次运行后推送一条简短中文摘要到微信（不含任何持仓金额）。
@@ -1055,16 +1055,18 @@ def build_plan(prices, errors, prev_plan, beijing_date, movers, ai_bits, stale_a
         r.update({"retired": True, "at_buy": False, "newly_touched": [], "retired_on": spec.get("retired_on"),
                   "replaced_by": spec.get("replaced_by") or ""})
         retired_rows.append(r)
-    adv = dict((ai_bits or {}).get("levels_advice") or {})
+    # 技术参考始终单独计算，即使已有已定价或 AI 策略参考也不丢弃。
+    adv_ai = dict((ai_bits or {}).get("levels_advice") or {})
+    adv = {}
     for r in rows + retired_rows:
-        if r["symbol"] in adv or not r.get("price"):
+        if not r.get("price"):
             continue
         tech = compute_tech_levels(r["price"], r.get("levels"), r)
         if tech:
             adv[r["symbol"]] = tech
-    ai_bits = dict(ai_bits or {}, levels_advice=adv)
-    rows = [_merge_level_advice(r, ai_bits, prev_rows.get(r["symbol"])) for r in rows]
-    retired_rows = [_merge_level_advice(r, ai_bits, prev_ret.get(r["symbol"])) for r in retired_rows]
+    ai_bits_tech = dict(ai_bits or {}, levels_advice=adv)
+    rows = [_finalize_buy_row(r, ai_bits_tech, prev_rows.get(r["symbol"]), adv_ai) for r in rows]
+    retired_rows = [_finalize_buy_row(r, ai_bits_tech, prev_ret.get(r["symbol"]), adv_ai) for r in retired_rows]
     rows = sort_buy_table(rows)
     dca = [build_dca_row(s, prices.get(s["symbol"]) or prices.get(s["yf"]),
                          errors.get(s["symbol"]) or errors.get(s["yf"])) for s in DCA_SPECS]
@@ -1092,7 +1094,7 @@ def build_plan(prices, errors, prev_plan, beijing_date, movers, ai_bits, stale_a
         "retired": [dict(s) for s in RETIRED_SPECS],
         "swap_log": list(SWAP_LOG),
         "dropped": list(DROPPED),
-        "levels_advice": (ai_bits or {}).get("levels_advice") or {},
+        "levels_advice": (ai_bits_tech or {}).get("levels_advice") or {},
         "big_news": (ai_bits or {}).get("big_news") or [],
         "ai_stale": bool(stale_ai),
         "calendar": {
@@ -1854,16 +1856,129 @@ def _dist_to_tp(px, tp):
     return (float(tp) - float(px)) / float(px) * 100
 
 
+def _session_px(*srcs):
+    """常规时段价格（收盘或盘中最新）。不用盘前/盘后/夜盘价。"""
+    for src in srcs:
+        if not src or not isinstance(src, dict):
+            continue
+        try:
+            v = src.get("price")
+            if v is not None and float(v) > 0:
+                return float(v)
+        except (TypeError, ValueError):
+            pass
+    return None
+
+
+def _auto_ref(row, px=None, cost=None):
+    """最新自动参考（ATR/高低点技术计算，已持有且有成本时按成本算）。不含我的/已定，也不编造。"""
+    row = row or {}
+    tech = None
+    src = ""
+    reason = ""
+    if cost and cost > 0:
+        base_px = px if px else _session_px(row)
+        if base_px:
+            tech = compute_tech_levels(base_px, [cost], row, basis="cost")
+            if tech:
+                src = "技术参考·按成本"
+                reason = tech.get("reason") or ""
+    sl = tp = None
+    if tech and tech.get("stop_loss"):
+        sl = float(tech["stop_loss"])
+    elif row.get("ref_sl"):
+        try:
+            if float(row["ref_sl"]) > 0:
+                sl = float(row["ref_sl"])
+                src = src or "技术参考"
+        except (TypeError, ValueError):
+            pass
+    if tech and tech.get("take_profit"):
+        tp = float(tech["take_profit"])
+    elif row.get("ref_tp"):
+        try:
+            if float(row["ref_tp"]) > 0:
+                tp = float(row["ref_tp"])
+                src = src or "技术参考"
+        except (TypeError, ValueError):
+            pass
+    if not reason:
+        reason = row.get("sl_tp_reason") or ""
+    ai_sl = ai_tp = None
+    try:
+        if row.get("ai_ref_sl") and float(row["ai_ref_sl"]) > 0:
+            ai_sl = float(row["ai_ref_sl"])
+    except (TypeError, ValueError):
+        pass
+    try:
+        if row.get("ai_ref_tp") and float(row["ai_ref_tp"]) > 0:
+            ai_tp = float(row["ai_ref_tp"])
+    except (TypeError, ValueError):
+        pass
+    return {
+        "sl": sl,
+        "tp": tp,
+        "tps": [tp] if tp else [],
+        "src": src,
+        "reason": reason,
+        "ai_sl": ai_sl,
+        "ai_tp": ai_tp,
+        "ai_reason": row.get("ai_ref_reason") or "",
+    }
+
+
+def _attach_price_layers(row):
+    """在买点行上同时写出执行价（不含网页「我的」覆盖）和自动参考价。兼容旧字段 ref_sl/ref_tp/fixed_*。"""
+    row = dict(row)
+    rs = _resolve_sltp(row, _session_px(row))
+    row["exec_sl"] = _r(rs["sl"], 4) if rs.get("sl") else None
+    row["exec_tp"] = [round(float(x), 4) for x in (rs.get("tps") or [])]
+    row["exec_sl_src"] = rs.get("sl_src") or ""
+    row["exec_tp_src"] = rs.get("tp_src") or ""
+    # 自动参考已在 ref_sl/ref_tp；这里再标来源，缺省则保持空，页面显示「暂无参考」
+    ref = rs.get("ref") or {}
+    if ref.get("src"):
+        row["ref_src"] = ref["src"]
+    return row
+
+
+def _finalize_buy_row(row, ai_bits_tech, prev_row, adv_ai=None):
+    """合并技术参考（始终计算）后，如有 AI 策略参考则单独挂上，再写出执行价层。"""
+    row = _merge_level_advice(row, ai_bits_tech, prev_row)
+    a = (adv_ai or {}).get(row["symbol"]) or (adv_ai or {}).get((row.get("yf") or "").upper())
+    if a:
+        if a.get("stop_loss"):
+            row["ai_ref_sl"] = _r(a.get("stop_loss"), 4)
+        if a.get("take_profit"):
+            row["ai_ref_tp"] = _r(a.get("take_profit"), 4)
+        if a.get("reason"):
+            row["ai_ref_reason"] = (a.get("reason") or "")[:300]
+        core = list(row.get("levels") or [])
+        extras = list(row.get("extra_tranches") or [])
+        for x in a.get("extra_tranches") or []:
+            try:
+                x = float(x)
+            except (TypeError, ValueError):
+                continue
+            if x <= 0 or any(_near(x, c) for c in core + extras):
+                continue
+            extras.append(round(x, 4))
+        row["extra_tranches"] = extras
+        row["tranche_levels"] = sorted(set(core + extras), reverse=True)
+    return _attach_price_layers(row)
+
+
 def _resolve_sltp(row, px=None, my_sl=None, my_tp=None, cost=None):
     """止损/止盈取值优先级（每一侧分别算）：
     我的（页面/密钥里填的）> 已定（config 里用户确认的固定价）> 技术参考。
     技术参考：已持有且知道成本时按成本算，否则按买点梯子算（云端 buy_table 里的 ref_sl/ref_tp）。
-    返回 {"sl","sl_src","tps":[...],"tp_src"}。"""
+    返回执行价 {"sl","sl_src","tps","tp_src"}，以及始终单独给出的自动参考 {"ref": {...}}。
+    参考价不会覆盖执行价。"""
     row = row or {}
     out = {"sl": None, "sl_src": "", "tps": [], "tp_src": ""}
     tech = None
     if cost and cost > 0:
-        base_px = px if px else row.get("price")
+        base_px = px if px else _session_px(row)
         if base_px:
             tech = compute_tech_levels(base_px, [cost], row, basis="cost")
     if my_sl:
@@ -1882,13 +1997,14 @@ def _resolve_sltp(row, px=None, my_sl=None, my_tp=None, cost=None):
         out["tps"], out["tp_src"] = [float(tech["take_profit"])], "技术参考·按成本"
     elif row.get("ref_tp"):
         out["tps"], out["tp_src"] = [float(row["ref_tp"])], "技术参考"
+    out["ref"] = _auto_ref(row, px, cost)
     return out
 
 
 def _sltp_for_position(pos, data):
     row = _plan_row_for(data, pos["symbol"]) or {}
     rec = _lookup_quote(data, pos["symbol"]) or {}
-    px = rec.get("price") if rec.get("price") is not None else row.get("price")
+    px = _session_px(rec, row)
     return _resolve_sltp(row, px, pos.get("sl"), pos.get("tp"), pos.get("cost"))
 
 
@@ -1917,7 +2033,7 @@ def _build_holdings_push(data, holdings):
     for pos in holdings["positions"]:
         rec = _lookup_quote(data, pos["symbol"]) or {}
         row = _plan_row_for(data, pos["symbol"]) or {}
-        px = rec.get("price") if rec.get("price") is not None else row.get("price")
+        px = _session_px(rec, row)
         prev = rec.get("prev_close") if rec.get("prev_close") is not None else row.get("prev_close")
         pct = rec.get("change_pct") if rec.get("change_pct") is not None else row.get("change_pct")
         qty, cost = pos["qty"], pos["cost"]
@@ -1961,6 +2077,17 @@ def _build_holdings_push(data, holdings):
                 dist.append(f"止盈（{rs['tp_src']}）：{tier}")
             else:
                 dist.append(f"止盈 {_tp_tier_text(tps, px)}（{rs['tp_src']}）")
+        ref = rs.get("ref") or {}
+        if ref.get("sl") or ref.get("tp"):
+            rsl = f"止损 {_fpx(ref['sl'])}" if ref.get("sl") else "止损 暂无参考"
+            rtp = f"止盈 {_fpx(ref['tp'])}" if ref.get("tp") else "止盈 暂无参考"
+            # 与执行价相同时不必重复
+            same_sl = (sl is not None and ref.get("sl") is not None and abs(float(sl) - float(ref["sl"])) < 1e-6)
+            same_tp = (tps and ref.get("tp") is not None and len(tps) == 1 and abs(float(tps[0]) - float(ref["tp"])) < 1e-6)
+            if not (same_sl and (same_tp or not tps)):
+                dist.append(f"参考：{rsl} / {rtp}")
+        elif sl or tps:
+            dist.append("参考：暂无参考")
         if not dist:
             dist.append("尚未设置止盈止损，也没有技术参考")
         acc = pos["account"]
@@ -2046,9 +2173,9 @@ def build_push_text(data, ai_ok, holdings=None):
             if r.get("swapped_in"):
                 mark += " 🆕换入"
             sltp = ""
-            rs = _resolve_sltp(r, r.get("price"))
+            px0 = _session_px(r)
+            rs = _resolve_sltp(r, px0)
             if rs["sl"] or rs["tps"]:
-                px0 = r.get("price")
                 dsl = dtp = ""
                 if rs["sl"] and px0:
                     d_ = _dist_to_stop(px0, rs["sl"])
@@ -2058,6 +2185,16 @@ def build_push_text(data, ai_ok, holdings=None):
                     dtp = f"，再涨 {d_:.1f}%" if d_ > 0 else "，现价已高于它"
                 sltp = (f"止损 {_fpx(rs['sl'])}（{rs['sl_src'] or '—'}{dsl}）" if rs["sl"] else "止损 —") + " / " + \
                        (f"止盈 {_tp_tier_text(rs['tps'], px0)}（{rs['tp_src'] or '—'}{dtp}）" if rs["tps"] else "止盈 —")
+                ref = rs.get("ref") or {}
+                if ref.get("sl") or ref.get("tp"):
+                    same_sl = (rs["sl"] is not None and ref.get("sl") is not None and abs(float(rs["sl"]) - float(ref["sl"])) < 1e-6)
+                    same_tp = (bool(rs["tps"]) and ref.get("tp") is not None and len(rs["tps"]) == 1 and abs(float(rs["tps"][0]) - float(ref["tp"])) < 1e-6)
+                    if not (same_sl and (same_tp or not rs["tps"])):
+                        rsl = f"止损 {_fpx(ref['sl'])}" if ref.get("sl") else "止损 暂无参考"
+                        rtp = f"止盈 {_fpx(ref['tp'])}" if ref.get("tp") else "止盈 暂无参考"
+                        sltp += f"<br>参考：{rsl} / {rtp}"
+                elif rs["sl"] or rs["tps"]:
+                    sltp += "<br>参考：暂无参考"
             gp = r.get("gap_pct")
             if r.get("watch_only") or observe_only:
                 gap = "不提示"
@@ -2081,7 +2218,7 @@ def build_push_text(data, ai_ok, holdings=None):
         if notes:
             lines += [""] + [f"- {n}" for n in notes]
         if any(r.get("ref_sl") or r.get("ref_tp") or r.get("fixed_sl") or r.get("fixed_tp") for r in ordered):
-            lines.append("\n止盈止损取值优先级：你填的（我的）＞ 你已定的（已定）＞ 技术参考；距离都以现价为分母（再跌/再涨多少 %）。日涨跌是常规时段，盘后另标。不是下单指令。已持有的杠杆 ETF 和 NVDA 触及卖点时，按你已定的计划执行。")
+            lines.append("\n止盈止损分两层：执行价（我的＞已定＞技术参考，触发和距离都用它）和最新参考价（技术计算，有则另列，不会自动改执行价）。距离都以常规时段现价为分母。日涨跌是常规时段，盘后另标。不是下单指令。已持有的杠杆 ETF 和 NVDA 触及卖点时，按你已定的计划执行。")
         out.append("\n".join(lines))
 
     lev = plan.get("levered") or {}
