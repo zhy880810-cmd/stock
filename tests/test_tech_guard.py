@@ -82,19 +82,24 @@ class VerifyTests(unittest.TestCase):
         raw = month_bars("2026-07-01", 20, 100, jump_on="2026-07-15", jump_to=5)
         vendor = [{"date": "2026-07-15", "ratio": 20}]
         audit = u.review_corporate_window("KORU", raw, vendor, quote_close=5)
-        self.assertEqual(audit["status"], "verified")
-        self.assertFalse(audit["dividend_adjusted"])
-        self.assertEqual(audit["basis"], "split_only_current_share")
-        self.assertAlmostEqual(audit["atr_pct"], audit["atr14"] / 5 * 100, places=1)
+        self.assertEqual(audit["status"], "unknown")
+        self.assertEqual(audit["components"]["splits"]["state"], "校验通过")
+        self.assertEqual(audit["components"]["atr"]["state"], "未校验")
         self.assertTrue(audit["applied_splits"])
         self.assertIn("direxion.com", audit["confirmed"][0]["url"])
+        long = month_bars("2026-06-01", 80, 100, jump_on="2026-07-15", jump_to=5)
+        audit2 = u.review_corporate_window("KORU", long, vendor, quote_close=5)
+        self.assertEqual(audit2["status"], "verified")
+        self.assertIn("仅基于拆股后", audit2.get("atr_label") or "")
+        self.assertGreater(audit2["post_split_sessions"], 15)
 
     def test_already_adjusted_is_not_divided_again(self):
         raw = month_bars("2026-07-01", 20, 5)
         vendor = [{"date": "2026-07-15", "ratio": 20}]
         audit = u.review_corporate_window("KORU", raw, vendor, quote_close=5)
-        self.assertEqual(audit["status"], "verified")
         self.assertEqual(audit["applied_splits"], [])
+        self.assertEqual(audit["components"]["splits"]["state"], "校验通过")
+        self.assertNotEqual(audit["components"]["atr"]["state"], "校验通过")
 
     def test_mismatch_hides(self):
         raw = month_bars("2026-07-01", 20, 100, jump_on="2026-07-15", jump_to=5)
@@ -107,7 +112,8 @@ class VerifyTests(unittest.TestCase):
         audit = u.review_corporate_window("TQQQ", raw, [], quote_close=8)
         self.assertEqual(audit["status"], "unknown")
         self.assertTrue(audit["hide_technical"])
-        self.assertIn("永不拆股", audit["note"])
+        self.assertIn("不能当成没有公司行为", audit["note"])
+        self.assertEqual(audit["components"]["atr"]["state"], "未校验")
 
     def test_auto_adjust_true_refused(self):
         raw = month_bars("2026-07-01", 20, 5)
@@ -158,6 +164,46 @@ class LayerSafetyTests(unittest.TestCase):
         self.assertTrue(u.addon_conflicts(4.97, 6))
         self.assertTrue(u.addon_conflicts(6, 6))
         self.assertFalse(u.addon_conflicts(45.11, 45))
+
+    def test_ordinary_stock_not_gated(self):
+        row = {"symbol": "NVDA", "price": 140, "ref_sl": 120, "ref_tp": 180, "atr14": 5}
+        self.assertTrue(u.technical_allowed(row))
+        rs = u._resolve_sltp(row, 140)
+        self.assertEqual(rs["ref"]["sl"], 120)
+        self.assertFalse(rs["ref"].get("hidden"))
+        etf = {"symbol": "TQQQ", "price": 55, "ref_sl": 40, "ref_tp": 70, "fixed_sl": 45, "fixed_tp": [60]}
+        self.assertFalse(u.technical_allowed(etf))
+        rs2 = u._resolve_sltp(etf, 55)
+        self.assertIsNone(rs2["ref"]["sl"])
+        self.assertEqual(rs2["sl"], 45)
+
+    def test_post_split_seed_excludes_d0_without_unified_prev(self):
+        bars = []
+        for i in range(16):
+            px = 10 + i * 0.1
+            bars.append({"date": f"2026-08-{i+1:02d}", "open": px, "high": px + 1, "low": px - 0.5, "close": px})
+        atr_ex, n, note = u.wilder_post_split(bars, bars[0]["date"], prev_unified=False)
+        self.assertIsNotNone(atr_ex)
+        self.assertIn("仅基于拆股后", note)
+        short = bars[:10]
+        atr_short, _, note_s = u.wilder_post_split(short, short[0]["date"], prev_unified=False)
+        self.assertIsNone(atr_short)
+        self.assertIn("D0", note_s)
+        atr_in, _, _ = u.wilder_post_split(bars[:14], bars[0]["date"], prev_close=9, prev_unified=True)
+        self.assertIsNotNone(atr_in)
+
+    def test_stale_coverage_stays_unchecked(self):
+        raw = month_bars("2026-08-01", 20, 8)
+        audit = u.review_corporate_window("KORU", raw, [], quote_close=8)
+        self.assertEqual(audit["status"], "unknown")
+        self.assertFalse(u.ACTION_COVERAGE["maintained_current"])
+        fresh = {
+            "maintained_current": True,
+            "symbols": {"KORU": {"complete_through": "2026-08-31"}},
+        }
+        audit2 = u.review_corporate_window("KORU", raw, [], quote_close=8, coverage=fresh, table=[])
+        self.assertEqual(audit2["status"], "verified")
+        self.assertIn("仅基于拆股后", audit2.get("atr_label") or audit2.get("note"))
 
     def test_unverified_hides_ref_keeps_agreed(self):
         row = {"symbol": "KORU", "price": 7.68, "fixed_sl": 6, "fixed_tp": [8.5, 10.5],

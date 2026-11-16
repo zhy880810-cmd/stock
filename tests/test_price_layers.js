@@ -80,9 +80,13 @@ assert(g.ref.sl === 41.5 && g.ref.tp === 72 && /按成本/.test(g.ref.src), 'cos
 const legacy = resolvePriceLayers({ loc: {}, strat: {}, fixedSl: 45, fixedTp: [60, 68], refSl: 42, refTp: 70 });
 assert(legacy.sl === 45 && legacy.slSrc === '已定', 'legacy keeps agreed execution');
 assert(!(legacy.ref.sl > 0) && !(legacy.ref.tp > 0), 'legacy without techOk hides technical ref');
-const auditMissing = histAuditOf({});
-assert(auditMissing.hide && auditMissing.status === 'unknown', 'missing audit is unverified');
-const auditBad = histAuditOf({ hist_audit: { status: 'pending', hide_technical: true } });
+const auditMissing = histAuditOf({symbol:'TQQQ'});
+assert(auditMissing.hide && auditMissing.state === '未校验', 'TQQQ without audit stays unchecked');
+const nvdaAudit = histAuditOf({symbol:'NVDA'});
+assert(nvdaAudit.ordinary && !nvdaAudit.hide, 'NVDA is not behind the ETF corporate-action gate');
+const rr = entryRiskReturn(50, 45, [60, 68]);
+assert(Math.abs(rr.risk - 10) < 1e-9 && rr.rets.length === 2 && Math.abs(rr.rets[0].ret - 20) < 1e-9, 'risk and return use the candidate entry, not the quote');
+const auditBad = histAuditOf({ symbol:'SOXL', hist_audit: { status: 'pending', hide_technical: true } });
 assert(auditBad.hide, 'pending audit hides adopt path');
 assert(addonConflict(4.97, 6) && addonConflict(6, 6), 'add-on <= stop is conflict, equality included');
 assert(!addonConflict(45.11, 45), 'TQQQ 45.11 above 45 is not a conflict');
