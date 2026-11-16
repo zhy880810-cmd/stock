@@ -12,6 +12,10 @@ sys.path.insert(0, os.path.join(ROOT, "scripts"))
 import update_daily as u  # noqa: E402
 
 
+def verified_audit():
+    return {"status": "verified", "hide_technical": False, "basis": "current_per_share"}
+
+
 def row(**kw):
     base = {
         "symbol": "TQQQ",
@@ -50,7 +54,7 @@ class SessionPxTests(unittest.TestCase):
 
 class ResolveLayersTests(unittest.TestCase):
     def test_manual_override_preserved_when_ref_changes(self):
-        r = row(ref_sl=42.0, ref_tp=70.0, fixed_sl=45, fixed_tp=[60, 68])
+        r = row(ref_sl=42.0, ref_tp=70.0, fixed_sl=45, fixed_tp=[60, 68], hist_audit=verified_audit())
         a = u._resolve_sltp(r, 48.0, my_sl=44.0, my_tp=80.0)
         r2 = dict(r, ref_sl=30.0, ref_tp=90.0)
         b = u._resolve_sltp(r2, 48.0, my_sl=44.0, my_tp=80.0)
@@ -64,7 +68,7 @@ class ResolveLayersTests(unittest.TestCase):
         self.assertEqual(b["ref"]["tp"], 90.0)
 
     def test_reference_still_shown_with_override(self):
-        r = row(ref_sl=42.0, ref_tp=70.0, fixed_sl=45, fixed_tp=[60, 68])
+        r = row(ref_sl=42.0, ref_tp=70.0, fixed_sl=45, fixed_tp=[60, 68], hist_audit=verified_audit())
         rs = u._resolve_sltp(r, 48.0, my_sl=44.0)
         self.assertEqual(rs["sl"], 44.0)
         self.assertEqual(rs["sl_src"], "我的")
@@ -75,7 +79,7 @@ class ResolveLayersTests(unittest.TestCase):
         self.assertEqual(rs["ref"]["src"], "技术参考")
 
     def test_fallback_agreed_then_technical(self):
-        r = row(ref_sl=42.0, ref_tp=70.0, fixed_sl=45, fixed_tp=[60, 68])
+        r = row(ref_sl=42.0, ref_tp=70.0, fixed_sl=45, fixed_tp=[60, 68], hist_audit=verified_audit())
         rs = u._resolve_sltp(r, 48.0)
         self.assertEqual(rs["sl"], 45)
         self.assertEqual(rs["sl_src"], "已定")
@@ -83,7 +87,7 @@ class ResolveLayersTests(unittest.TestCase):
         self.assertEqual(rs["tp_src"], "已定")
         self.assertEqual(rs["ref"]["sl"], 42.0)
 
-        r2 = row(ref_sl=42.0, ref_tp=70.0, fixed_sl=None, fixed_tp=[])
+        r2 = row(ref_sl=42.0, ref_tp=70.0, fixed_sl=None, fixed_tp=[], hist_audit=verified_audit())
         rs2 = u._resolve_sltp(r2, 48.0)
         self.assertEqual(rs2["sl"], 42.0)
         self.assertEqual(rs2["sl_src"], "技术参考")
@@ -123,7 +127,8 @@ class ResolveLayersTests(unittest.TestCase):
         # original old row still resolves without the new fields
         rs = u._resolve_sltp(old, old["price"])
         self.assertEqual(rs["sl"], 38.0)
-        self.assertEqual(rs["ref"]["sl"], 32.0)
+        self.assertIsNone(rs["ref"]["sl"])
+        self.assertTrue(rs["ref"]["hidden"])
 
     def test_distance_uses_regular_session_price(self):
         r = row(price=50.0, close=50.0, extended_price=40.0, fixed_sl=45, ref_sl=42)
@@ -136,7 +141,7 @@ class ResolveLayersTests(unittest.TestCase):
         self.assertLess(u._dist_to_stop(r["extended_price"], rs["sl"]), 0)
 
     def test_cost_based_ref_shown_even_with_agreed(self):
-        r = row(fixed_sl=45, fixed_tp=[60, 68], ref_sl=42, ref_tp=70, atr14=2.0, price=50.0)
+        r = row(fixed_sl=45, fixed_tp=[60, 68], ref_sl=42, ref_tp=70, atr14=2.0, price=50.0, hist_audit=verified_audit())
         rs = u._resolve_sltp(r, 50.0, cost=48.0)
         self.assertEqual(rs["sl"], 45)
         self.assertEqual(rs["sl_src"], "已定")
@@ -155,7 +160,7 @@ class ResolveLayersTests(unittest.TestCase):
         self.assertEqual(out["exec_sl_src"], "已定")
 
     def test_finalize_keeps_tech_ref_when_ai_advice_present(self):
-        r = row(ref_sl=None, ref_tp=None, fixed_sl=45, fixed_tp=[60], price=50.0, levels=[52, 50], atr14=2.0)
+        r = row(ref_sl=None, ref_tp=None, fixed_sl=45, fixed_tp=[60], price=50.0, levels=[52, 50], atr14=2.0, hist_audit=verified_audit())
         tech = u.compute_tech_levels(r["price"], r["levels"], r)
         self.assertTrue(tech and tech.get("stop_loss"))
         finalized = u._finalize_buy_row(

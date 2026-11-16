@@ -353,8 +353,11 @@ const QUICK = [
   ['改雷达策略','请根据我下面的要求，修改雷达页的交易策略（计划标的、买点梯子或规则）。先说明建议怎么改，并在回复末尾附加 strategy-json 代码块；不要写成已经生效，等我在页面上点「应用到雷达」。\n\n我想改的是：']
 ];
 
+function heldLeveredList(){
+  return levSyms().filter(s => hasHolding(s));
+}
 function defaults(){
-  return { v:1, watch:[], hold:[], planHist:[], plan:{ bought:{}, sltp:{}, dca:{}, observe:[], ignoredOpp:'', fullPos:null, swap:null }, events:[], manual:{}, quotes:{},
+  return { v:1, watch:[], hold:[], planHist:[], priceLog:[], priceReview:{}, plan:{ bought:{}, sltp:{}, dca:{}, observe:[], ignoredOpp:'', fullPos:null, swap:null }, events:[], manual:{}, quotes:{},
     fx:{ ts:0, rates:{USD:1,CNY:7.1,HKD:7.8}, manual:{}, fetched:false },
     settings:{ theme:'auto', upColor:'red', refreshSec:60, baseCur:'CNY', leadHours:24, notify:false, alert:{ on:true, lossPct:10, dayPct:5 }, capitalUsd:1500, targetAggressive:40, targetConservative:40, targetCash:20 },
     planStrategy:null,
@@ -831,16 +834,16 @@ function computeAlerts(){
   P.rows.forEach(r => {
     if(!r.p) return;
     const nm = nameOf(r.h.key, r.h.name), sym = SYM[r.cur];
-    if(r.h.stop>0 && r.p.price <= r.h.stop) out.push({lv:2, text:`${nm} 现价 ${sym}${fmt(r.p.price)}，已触及止损价 ${sym}${fmt(r.h.stop)}。请整笔卖出，不要拆单。`});
-    if(r.h.take>0 && r.p.price >= r.h.take) out.push({lv:2, text:`${nm} 现价 ${sym}${fmt(r.p.price)}，已触及止盈价 ${sym}${fmt(r.h.take)}。请整笔卖出，不要拆单。`});
+    if(r.h.stop>0 && r.p.price <= r.h.stop) out.push({lv:2, text:`${nm} 常规时段现价 ${sym}${fmt(r.p.price)}，已触及止损价 ${sym}${fmt(r.h.stop)}。若卖出，整笔一次，不是自动下单。`});
+    if(r.h.take>0 && r.p.price >= r.h.take) out.push({lv:2, text:`${nm} 常规时段现价 ${sym}${fmt(r.p.price)}，已到止盈复核价 ${sym}${fmt(r.h.take)}。若卖出，整笔一次，不是自动下单。`});
     const ps = planSymFromKey(r.h.key);
     if(ps && (isLev(ps) || ps==='NVDA') && isBought(ps)){
       const t0 = sltpOf(ps);
-      if(!(r.h.stop>0) && t0.sl>0 && r.p.price<=t0.sl) out.push({lv:2, text:`${nm} 现价 ${sym}${fmt(r.p.price)}，已触及${t0.slSrc}止损 ${sym}${fmt(t0.sl)}。请整笔卖出，不要拆单。`});
-      if(!(r.h.take>0) && t0.tp>0 && r.p.price>=t0.tp) out.push({lv:2, text:`${nm} 现价 ${sym}${fmt(r.p.price)}，已触及${t0.tpSrc}止盈第一档 ${sym}${fmt(t0.tp)}${t0.tps.length>1?'（第二档 '+sym+fmt(t0.tps[1])+'）。请按你已定的计划执行。':'。请整笔卖出，不要拆单。'}`});
+      if(!(r.h.stop>0) && t0.sl>0 && r.p.price<=t0.sl) out.push({lv:2, text:`${nm} 常规时段现价 ${sym}${fmt(r.p.price)}，已触及${t0.slSrc}止损 ${sym}${fmt(t0.sl)}。若卖出，整笔一次，不是自动下单。`});
+      if(!(r.h.take>0) && t0.tp>0 && r.p.price>=t0.tp) out.push({lv:2, text:`${nm} 常规时段现价 ${sym}${fmt(r.p.price)}，已到${t0.tpSrc}止盈复核价 ${sym}${fmt(t0.tp)}${t0.tps.length>1?'（另一档 '+sym+fmt(t0.tps[1])+' 只是复核价，不是自动分批卖出）':''}。若卖出，整笔一次。`});
     }
-    if(Number.isFinite(r.plp) && r.plp <= -A.lossPct) out.push({lv:2, text:`${nm} 相对成本亏损 ${fmtPct(r.plp)}，超过预警线 -${A.lossPct}%`});
-    if(Number.isFinite(r.p.pct) && r.p.pct <= -A.dayPct) out.push({lv:1, text:`${nm} 最近一个交易日下跌 ${fmtPct(r.p.pct)}，超过预警线 -${A.dayPct}%`});
+    if(Number.isFinite(r.plp) && r.plp <= -A.lossPct) out.push({lv:2, text:`${nm} 相对持仓成本 ${fmtPct(r.plp)}（分母：成本，不是距止损），超过预警线 -${A.lossPct}%`});
+    if(Number.isFinite(r.p.pct) && r.p.pct <= -A.dayPct) out.push({lv:1, text:`${nm} 相对上一常规收盘 ${fmtPct(r.p.pct)}（分母：上一收盘），超过预警线 -${A.dayPct}%`});
   });
   return out.sort((a,b)=>b.lv-a.lv);
 }
@@ -1011,6 +1014,22 @@ function holdAccount(h){
   if(h && (h.account==='ZA'||h.account==='盈立')) return h.account;
   return defaultAccount(h);
 }
+function holdLocalLine(sym){
+  const s = canonPlanSym(sym);
+  let q=0, cq=0;
+  (S.hold||[]).forEach(h => {
+    if(h && h.qty>0 && canonPlanSym(planSymFromKey(h.key)||'')===s){
+      q += Number(h.qty)||0;
+      if(h.cost>0) cq += Number(h.qty)*Number(h.cost);
+    }
+  });
+  if(!(q>0)) return '';
+  const cost = cq>0 ? cq/q : NaN;
+  const px = sessionPx(s, planCloudRow(s)||{});
+  const plp = (cost>0 && px>0) ? (px/cost-1)*100 : NaN;
+  const plTxt = Number.isFinite(plp) ? `浮动 ${fmtPct(plp)}（分母：持仓成本，不是距止损）` : '浮动盈亏暂缺';
+  return `<div class="sub">持仓 ${fmt(q)}，成本 ${Number.isFinite(cost)?fmt(cost):'—'}，${plTxt}。这些数字只在本机显示。</div>`;
+}
 function hasHolding(sym){
   const key = planKey(sym), alt = 'us:' + canonPlanSym(sym).replace('.','-');
   return (S.hold||[]).some(h => h && h.qty>0 && (h.key===key || h.key===alt || planSymFromKey(h.key)===canonPlanSym(sym)));
@@ -1061,8 +1080,10 @@ function holdCostOf(sym){
 function techLevelsJs(baseLevels, row, px){
   const core = (baseLevels||[]).filter(x => x>0).sort((a,b)=>b-a);
   if(!core.length || !(px>0)) return null;
-  const lev = (row && row.kind)==='levered', fb = lev?0.07:0.04;
-  let atr = row && row.atr14>0 && !(row.atr14/px > (lev?0.20:0.12)) ? row.atr14 : px*fb;
+  const lev = (row && row.kind)==='levered';
+  const cap = lev ? 0.20 : 0.12;
+  if(!(row && row.atr14>0) || row.atr14/px > cap) return null;
+  let atr = row.atr14;
   const low = Math.min(...core), high = Math.max(...core), avg = core.reduce((a,b)=>a+b,0)/core.length;
   let sl = low - 1.5*atr;
   [row&&row.low_3m, row&&row.low_20d].forEach(sw => { if(sw>0 && sw<low && sw-0.5*atr<sl) sl = sw-0.5*atr; });
@@ -1082,16 +1103,31 @@ function sessionPx(sym, row){
 function nearPx(a,b){ return Number.isFinite(a)&&Number.isFinite(b)&&Math.abs(a-b)<=1e-6; }
 /* === PRICE_LAYERS_BEGIN === */
 /* 执行价：我的 ＞ 已定 ＞ 技术参考。参考价始终是自动技术/AI 计算，不含我的/已定，缺则暂无参考，不编造。 */
+function histAuditOf(row){
+  const a = row && row.hist_audit;
+  if(!a || typeof a!=='object' || !a.status){
+    return {status:'unknown', hide:true, note:'云端还没有复权校验。技术参考和「采用」先隐藏，已定和我的执行价仍有效。'};
+  }
+  if(a.status!=='verified' || a.hide_technical){
+    return {status:a.status||'unknown', hide:true, note:a.note||'复权未核实，技术参考已隐藏。'};
+  }
+  return {status:'verified', hide:false, note:a.note||'', audit:a};
+}
+function addonConflict(price, stop){
+  const p = Number(price), s = Number(stop);
+  return p>0 && s>0 && p <= s + 1e-9;
+}
 function resolvePriceLayers(input){
   input = input || {};
   const loc = input.loc || {};
   const stS = input.strat || {};
   const pos = v => { v=Number(v); return v>0?v:NaN; };
+  const techOk = input.techOk === true;
   const fxSl = pos(input.fixedSl);
   const fxTps = (Array.isArray(input.fixedTp)?input.fixedTp:[]).map(pos).filter(x=>x>0);
-  const costTech = input.costTech || null;
-  const cloudSl = pos(input.refSl), cloudTp = pos(input.refTp);
-  const aiSl = pos(input.aiRefSl), aiTp = pos(input.aiRefTp);
+  const costTech = techOk ? (input.costTech || null) : null;
+  const cloudSl = techOk ? pos(input.refSl) : NaN, cloudTp = techOk ? pos(input.refTp) : NaN;
+  const aiSl = techOk ? pos(input.aiRefSl) : NaN, aiTp = techOk ? pos(input.aiRefTp) : NaN;
   let rSl=NaN, rTp=NaN, rSrc='', rReason=input.reason||'';
   if(costTech && costTech.sl>0){ rSl=costTech.sl; rSrc='技术参考·按成本'; }
   else if(cloudSl>0){ rSl=cloudSl; rSrc='技术参考'; }
@@ -1130,6 +1166,29 @@ function refApplyPatch(loc, ref){
   if(ref && ref.tp>0) o.tp = ref.tp; else if(o.tp==null) delete o.tp;
   return o;
 }
+function positionMode(opts){
+  opts = opts || {};
+  const held = !!opts.hasQty;
+  const multi = (Number(opts.levHeldCount)||0) > 1;
+  return {
+    candidateOnly: !held,
+    reviewNotBuy: !held,
+    showHoldingStats: held,
+    historicalLadder: held,
+    blockNewExecutable: multi,
+    wholePosition: true
+  };
+}
+function applyReview(review, decision){
+  const before = Object.assign({}, (review && review.before) || {});
+  if(decision!=='confirm') return {applied:false, loc:before, history:null};
+  const loc = refApplyPatch(before, review && review.proposed);
+  return {applied:true, loc:loc, history:{
+    sym:(review && review.sym) || '',
+    before:{sl:before.sl>0?before.sl:null, tp:before.tp>0?before.tp:null},
+    after:{sl:loc.sl>0?loc.sl:null, tp:loc.tp>0?loc.tp:null}
+  }};
+}
 /* === PRICE_LAYERS_END === */
 /* 止损/止盈取值优先级（每一侧分别算）：我的（页面/持仓里填的）＞ 已定（config.json 里用户确认的固定价）＞ 技术参考。
    技术参考：已持有且有成本 → 按成本算；否则用云端按买点梯子算的 ref_sl/ref_tp。
@@ -1142,18 +1201,20 @@ function sltpOf(sym){
   const fxTps = (Array.isArray(row.fixed_tp)?row.fixed_tp:[]).filter(x=>x>0);
   const px = sessionPx(s, row);
   const cost = holdCostOf(s);
-  const costTech = (cost>0 && px>0) ? techLevelsJs([cost], row, px) : null;
-  let reason = row.sl_tp_reason || '';
+  const audit = histAuditOf(row);
+  const costTech = (!audit.hide && cost>0 && px>0) ? techLevelsJs([cost], row, px) : null;
+  let reason = audit.hide ? (audit.note || '') : (row.sl_tp_reason || '');
   if(costTech){
-    reason = `技术参考（按你的成本 ${fmt(cost)} 算，本机计算，非 AI/新闻）：止损=成本下 1.5×ATR（若近三月/20 日低点更低，则取该低点下 0.5×ATR），止盈=成本上 3×ATR 或近三月高点（限在 2~6×ATR 内），且不低于成本的 103%。`;
+    reason = `技术参考（按你的成本 ${fmt(cost)} 算，只用已核实的 ATR，非 AI/新闻）：止损=成本下 1.5×ATR（若近三月/20 日低点更低，则取该低点下 0.5×ATR），止盈=成本上 3×ATR 或近三月高点（限在 2~6×ATR 内），且不低于成本的 103%。`;
   }
   const t = resolvePriceLayers({
     loc, strat: stS, fixedSl: row.fixed_sl, fixedTp: fxTps,
-    refSl: row.ref_sl, refTp: row.ref_tp, costTech,
+    refSl: row.ref_sl, refTp: row.ref_tp, costTech, techOk: !audit.hide,
     aiRefSl: row.ai_ref_sl, aiRefTp: row.ai_ref_tp, aiRefReason: row.ai_ref_reason||'',
     asof: row.fixed_asof||'', reason, url: row.sl_tp_url||'', stale: !!row.sl_tp_stale,
     dataNote: row.data_note||''
   });
+  t.audit = audit;
   return t;
 }
 function realReason(s){
@@ -1657,7 +1718,7 @@ function renderStrategyEditorCard(){
       <button class="sm" data-act="stratImport">导入策略 JSON</button>
     </div>
     <input type="file" id="stratImpFile" accept="application/json,.json" style="display:none">
-    <div class="sub" style="margin-top:8px">恢复为云端默认后，雷达重新跟 data.json 里的计划走（含云端自动换股）。你在本机填的止盈止损和已买入标记会保留。</div>
+    <div class="sub" style="margin-top:8px">恢复为云端默认后，雷达重新跟 data.json 里的计划走。技术价和 AI 机会不会自动改买点。你在本机填的止盈止损和已买入标记会保留。</div>
   </div>`;
 }
 function readStrategyForm(){
@@ -1812,29 +1873,36 @@ function dismissStrategyDraft(mid){
 
 function renderLadder(row, opts){
   const core = (row.levels||[]).slice();
-  const extra = (row.extra_tranches||[]).slice();
-  const newly = (row.newly_touched||[]).map(Number);
-  const touched = (row.touched_now||[]).map(Number);
-  const near = (a,b) => Number.isFinite(a)&&Number.isFinite(b)&&Math.abs(a-b)<=Math.max(0.01, Math.abs(b)*0.004);
-  const chip = (lv, kind) => {
-    const hit = touched.some(x=>near(x,lv));
-    const neu = newly.some(x=>near(x,lv));
-    return `<span class="lv ${kind}${neu?' new':hit?' hit':''}">${kind==='extra'?'补 ':''}${fmt(lv, lv>=100?2:lv>=10?2:3)}${neu?' 新触及':hit?' 已到':''}</span>`;
-  };
-  const html = core.map(lv=>chip(lv,'core')).join('') + extra.map(lv=>chip(lv,'extra')).join('');
-  let out = html ? `<div class="ladder">${html}</div>` : '';
+  const s = canonPlanSym(row.symbol);
+  const held = hasHolding(s);
+  const stop = (sltpOf(s).slSrc==='我的' || sltpOf(s).slSrc==='已定') ? sltpOf(s).sl : NaN;
+  const proposed = Array.isArray(row.proposed_tranches) ? row.proposed_tranches : (row.extra_tranches||[]).map(v => ({price:v, conflict:addonConflict(v, stop), executable:false}));
+  const chip = (lv) => `<span class="lv core">${fmt(lv, lv>=100?2:lv>=10?2:3)}</span>`;
+  let out = core.length ? `<div class="ladder">${held?'<span class="sub">历史候选买点（不是持仓操作）</span> ':''}${core.map(chip).join('')}</div>` : '';
+  proposed.forEach(p => {
+    const px = Number(p && (p.price!=null?p.price:p));
+    if(!(px>0)) return;
+    if(addonConflict(px, stop)) out += `<div class="warnbox">补充价 ${fmt(px)} ≤ 有效止损 ${fmt(stop)}，策略冲突，不作为加仓。</div>`;
+    else out += `<div class="sub">补充价 ${fmt(px)} 只待复核，不会自动变成买点。</div>`;
+  });
   const cloudLv = typeof posLevels==='function' ? posLevels(row._cloudLevels||[]) : (row._cloudLevels||[]);
-  if(row._levelsOverridden && cloudLv.length){
-    out += `<div class="px-layers ref-line"><span class="lab">参考</span>买点 ${cloudLv.map(v=>fmt(v)).join(', ')} <button class="sm" data-act="buyApplyRef" data-sym="${esc(canonPlanSym(row.symbol))}">采用</button></div>`;
+  const rev = (S.priceReview || {})[s];
+  if(rev && rev.kind==='levels'){
+    out += `<div class="warnbox">买点核对中：${esc((rev.before||[]).join(', ')||'—')} → ${esc((rev.proposed||[]).join(', '))}。还没改策略。
+      <button class="sm" data-act="buyReviewOk" data-sym="${esc(s)}">确认应用到雷达</button>
+      <button class="sm" data-act="sltpReviewCancel" data-sym="${esc(s)}">取消</button></div>`;
+  } else if(!held && row._levelsOverridden && cloudLv.length){
+    out += `<div class="px-layers ref-line"><span class="lab">参考</span>买点 ${cloudLv.map(v=>fmt(v)).join(', ')} <button class="sm" data-act="buyApplyRef" data-sym="${esc(s)}">采用</button></div>`;
   }
   return out;
 }
 function gapText(row){
   if(row.watch_only) return '财报前只看不买，不提示买入。';
+  if(hasHolding(canonPlanSym(row.symbol))) return '已有持仓。候选买点梯子只作历史记录，不是加仓指令。';
   if(!(row.nearest_level>0) || !Number.isFinite(row.gap_pct)) return '买点缺口暂缺。';
   const lv = row.nearest_level, gp = row.gap_price, pct = row.gap_pct;
-  if(pct<=0) return `已到买点 ${fmt(lv)}（现价已低于该买点 ${pctAbs(pct)}）。`;
-  return `距买点 ${fmt(lv)} 还差 ${fmt(gp)}（现价再跌 ${pctAbs(pct)} 到买点）。`;
+  if(pct<=0) return `已到候选买点 ${fmt(lv)}（相对常规时段现价 ${pctAbs(pct)}，分母是现价）。这是复核，不是买入指令。`;
+  return `距候选买点 ${fmt(lv)} 还差 ${fmt(gp)}（相对常规时段现价再跌 ${pctAbs(pct)}，分母是现价）。`;
 }
 function pctAbs(x){ return (Math.abs(x)).toFixed(1)+'%'; }
 /* 距离一律以常规时段现价为分母：止损=现价还要再跌多少%，止盈=现价还要再涨多少%。不用盘外价。 */
@@ -1843,8 +1911,8 @@ function sltpDistBits(t, px){
   if(t.sl>0){
     let d = '';
     if(px>0){
-      if(px<=t.sl) d = `，已低于 ${fmt(t.sl-px)}`;
-      else d = `，再跌 ${pctAbs((px-t.sl)/px*100)}`;
+      if(px<=t.sl) d = `，常规时段现价已低于 ${fmt(t.sl-px)}`;
+      else d = `，再跌 ${pctAbs((px-t.sl)/px*100)}（分母：常规时段现价）`;
     }
     bits.push(`止损 ${fmt(t.sl)}（${t.slSrc}）${d}`);
   } else bits.push('止损 —');
@@ -1853,7 +1921,7 @@ function sltpDistBits(t, px){
     const parts = t.tps.map((v,i) => {
       const nm = tier ? (i?'二档 ':'一档 ') : '';
       if(!(px>0)) return `${nm}${fmt(v)}`;
-      return px>=v ? `${nm}${fmt(v)} 已触及` : `${nm}${fmt(v)}（再涨 ${pctAbs((v-px)/px*100)}）`;
+      return px>=v ? `${nm}${fmt(v)} 已到复核价` : `${nm}${fmt(v)}（再涨 ${pctAbs((v-px)/px*100)}，分母：常规时段现价）`;
     });
     bits.push(`止盈 ${parts.join(' ／ ')}（${t.tpSrc}）`);
   } else bits.push('止盈 —');
@@ -1861,6 +1929,7 @@ function sltpDistBits(t, px){
 }
 function sltpRefLineHtml(t){
   const r = t.ref || {};
+  if(t.audit && t.audit.hide) return `<span class="lab">参考</span>暂不显示 <span class="sub">（${esc(t.audit.note||'复权未核实')}）</span>`;
   if(!r.has) return `<span class="lab">参考</span>暂无参考`;
   const parts = [];
   if(r.sl>0) parts.push(`止损 ${fmt(r.sl)}`); else parts.push('止损 暂无参考');
@@ -1874,6 +1943,32 @@ function sltpRefLineHtml(t){
   }
   return s;
 }
+function auditDetailsHtml(t){
+  const a = t && t.audit && t.audit.audit;
+  if(!a || (t.audit && t.audit.hide)) return '';
+  return `<details class="sub" style="margin-top:4px"><summary>技术计算核对</summary>
+    <div>数据源：${esc(a.source||'未复权 OHLC')}</div>
+    <div>截止交易日：${esc(a.cutoff||'—')}；ATR 种子日：${esc(a.atr_seed_date||'—')}</div>
+    <div>复权基准：${esc(a.basis||'current_per_share')}（Open/High/Low/Close 同一因子）</div>
+    <div>ATR14：${a.atr14>0?fmt(a.atr14):'—'}；计算基准价：${a.baseline>0?fmt(a.baseline):'—'}（常规时段收盘）</div>
+    <div>公式：${esc(a.formula||'Wilder ATR(14)')}</div>
+    <div>${esc(a.warmup||'第15根K线才有第一颗ATR，之前不外推。')}</div>
+  </details>`;
+}
+function priceReviewHtml(sym){
+  const s = canonPlanSym(sym);
+  const rev = (S.priceReview || {})[s];
+  if(!rev || rev.kind!=='sltp') return '';
+  const b = rev.before || {}, p = rev.proposed || {};
+  return `<div class="warnbox" style="margin-top:6px"><b>核对中，还没改执行价。</b>
+    <div class="sub" style="margin-top:4px">止损 ${esc(b.sl>0?fmt(b.sl)+'（'+(b.slSrc||'')+'）':'—')} → ${esc(p.sl>0?fmt(p.sl):'该侧不变')}<br>
+    止盈 ${esc(b.tp>0?fmt(b.tp)+'（'+(b.tpSrc||'')+'）':'—')} → ${esc(p.tp>0?fmt(p.tp):'该侧不变')}</div>
+    <div class="sub">确认后会用本机「我的」覆盖原来的已定/执行价，两套止损不会同时生效。取消则保持原样。</div>
+    <div class="row" style="margin-top:6px">
+      <button class="sm" data-act="sltpReviewOk" data-sym="${esc(s)}">确认应用到执行价</button>
+      <button class="sm" data-act="sltpReviewCancel" data-sym="${esc(s)}">取消</button>
+    </div></div>`;
+}
 function sltpRefHtml(sym, row, bought){
   const t = sltpOf(sym);
   const s = canonPlanSym(sym);
@@ -1885,10 +1980,12 @@ function sltpRefHtml(sym, row, bought){
   let box = `<div class="slbox px-layers ${hitSl||hitTp?'':'sub'}">`;
   box += `<div class="exec-line"><span class="lab">执行</span>${bits.join('　')}</div>`;
   box += `<div class="ref-line">${sltpRefLineHtml(t)}`;
-  if(t.ref && t.ref.has && t.ref.differs){
+  if(!(t.audit && t.audit.hide) && t.ref && t.ref.has && t.ref.differs){
     box += ` <button class="sm" data-act="sltpApplyRef" data-sym="${esc(s)}">采用</button>`;
   }
   box += `</div>`;
+  box += auditDetailsHtml(t);
+  box += priceReviewHtml(s);
   const notes = [];
   if(t.fixed) notes.push(`「已定」是你确认的固定价${t.asof?'（'+esc(t.asof)+'）':''}；「我的」优先。参考价会更新，但不会自动改执行价。`);
   else if(t.custom) notes.push('当前执行价是你在本机填的。参考价会更新，但不会自动改执行价。');
@@ -1901,7 +1998,8 @@ function sltpRefHtml(sym, row, bought){
   box += `<div class="row" style="margin-top:6px"><button class="sm" data-act="sltpEdit" data-sym="${esc(s)}">改我的价</button></div></div>`;
   if(miss) box = `<div class="warnbox">请补上${esc(s)}的止损 / 止盈（暂无已定价，也暂无参考），不要编造，按你自己的规则填。</div>` + box;
   if(hitSl||hitTp){
-    box = `<div class="slhit"><b>${hitSl?'已触及止损':'已触及止盈'}</b>：${hitSl||t.tps.length<2?'请整笔卖出，不要拆单。':'请按你已定的两档止盈计划执行。'}` + box + '</div>';
+    const tierNote = t.tps.length>1 ? '两档止盈都只是复核价，不是自动分批卖出。' : '';
+    box = `<div class="slhit"><b>${hitSl?'已触及止损':'已到止盈复核价'}</b>：若卖出，整笔一次，不是自动下单。${tierNote}` + box + '</div>';
   }
   return box;
 }
@@ -1909,6 +2007,11 @@ function boughtBtns(sym){
   const s = canonPlanSym(sym);
   if(isBought(s)) return `<button class="sm" data-act="planUnbuy" data-sym="${esc(s)}">取消已买入</button>`;
   return `<button class="sm" data-act="planBuy" data-sym="${esc(s)}">标记已买入</button>`;
+}
+function pushPriceLog(entry){
+  if(!Array.isArray(S.priceLog)) S.priceLog = [];
+  S.priceLog.push(entry);
+  if(S.priceLog.length > 40) S.priceLog.splice(0, S.priceLog.length - 40);
 }
 function clearManualSltp(sym){
   const s = canonPlanSym(sym);
@@ -1932,41 +2035,60 @@ function writeManualSltp(sym, sl, tp){
 function confirmApplySltpRef(sym){
   const s = canonPlanSym(sym); if(!s) return;
   const t = sltpOf(s);
+  if(t.audit && t.audit.hide){ toast('技术参考未核实，不能采用'); return; }
   if(!(t.ref && t.ref.has)){ toast('暂无参考'); return; }
-  const slFrom = t.sl>0 ? (fmt(t.sl)+'（'+t.slSrc+'）') : '—';
-  const tpFrom = t.tps.length ? (t.tps.map(v=>fmt(v)).join(' / ')+'（'+t.tpSrc+'）') : '—';
-  const slTo = t.ref.sl>0 ? fmt(t.ref.sl) : '（该侧暂无参考，保持不变）';
-  const tpTo = t.ref.tp>0 ? fmt(t.ref.tp) : '（该侧暂无参考，保持不变）';
-  openDlg('采用参考价',
-    `<div>将把 <b>${esc(s)}</b> 的执行价改为当前参考价（会写入本机「我的」覆盖）：</div>
-     <div class="sub" style="margin-top:8px">止损 ${esc(slFrom)} → ${esc(slTo)}<br>止盈 ${esc(tpFrom)} → ${esc(tpTo)}</div>
-     <div class="sub" style="margin-top:8px">之后参考价再变也不会自动改执行价。可随时清除覆盖。点取消则不改。</div>`,
-    '应用到执行价', () => {
-      const sl = t.ref.sl>0 ? t.ref.sl : (t.slMine ? t.sl : NaN);
-      const tp = t.ref.tp>0 ? t.ref.tp : (t.tpMine ? t.tp : NaN);
-      writeManualSltp(s, sl, tp);
-      toast('已采用参考价作为执行价（只存在本机）');
-    });
+  if(!S.priceReview || typeof S.priceReview!=='object') S.priceReview = {};
+  S.priceReview[s] = {
+    kind:'sltp', at: beijingNowLabel(),
+    before:{ sl:t.sl>0?t.sl:null, tp:t.tp>0?t.tp:null, slSrc:t.slSrc||'', tpSrc:t.tpSrc||'' },
+    proposed:{ sl:t.ref.sl>0?t.ref.sl:null, tp:t.ref.tp>0?t.ref.tp:null }
+  };
+  save(); renderAll();
+  toast('已进入核对，执行价还没改');
+}
+function commitSltpReview(sym){
+  const s = canonPlanSym(sym); if(!s) return;
+  const rev = (S.priceReview || {})[s];
+  if(!rev) return;
+  const result = applyReview({sym:s, before:rev.before, proposed:rev.proposed}, 'confirm');
+  if(!result.applied) return;
+  writeManualSltp(s, result.loc.sl, result.loc.tp);
+  pushPriceLog({t:beijingNowLabel(), sym:s, kind:'sltp', before:result.history.before, after:result.history.after});
+  delete S.priceReview[s];
+  save(); renderAll();
+  toast('已把核对后的价格写成执行价（只存在本机）');
+}
+function cancelSltpReview(sym){
+  const s = canonPlanSym(sym); if(!s || !S.priceReview) return;
+  delete S.priceReview[s];
+  save(); renderAll();
+  toast('已取消，执行价未改');
 }
 function confirmApplyBuyRef(sym){
   const s = canonPlanSym(sym); if(!s) return;
+  if(hasHolding(s)){ toast('已有持仓，候选买点梯子不作为加仓指令'); return; }
   const cloud = planCloudRow(s);
   const lv = posLevels(cloud && cloud.levels);
   if(!lv.length){ toast('暂无参考买点'); return; }
   if(!hasLocalStrategy()){ toast('当前没有本机策略覆盖'); return; }
   const cur = ((S.planStrategy.symbols||[]).find(x => canonPlanSym(x.symbol)===s)||{}).levels || [];
-  openDlg('采用参考买点',
-    `<div>将把 <b>${esc(s)}</b> 的执行买点改为云端参考梯子：</div>
-     <div class="sub" style="margin-top:8px">${esc((cur||[]).join(', ')||'—')} → ${esc(lv.join(', '))}</div>
-     <div class="sub" style="margin-top:8px">只改这一只的买点，写入本机策略。点取消则不改。</div>`,
-    '应用到雷达', () => {
-      const item = (S.planStrategy.symbols||[]).find(x => canonPlanSym(x.symbol)===s);
-      if(!item) return;
-      item.levels = lv.slice();
-      S.planStrategy.updatedAt = beijingNowLabel();
-      save(); renderAll();
-      toast('已采用参考买点（只存在本机）');
-    });
+  if(!S.priceReview || typeof S.priceReview!=='object') S.priceReview = {};
+  S.priceReview[s] = {kind:'levels', at:beijingNowLabel(), before:cur.slice(), proposed:lv.slice()};
+  save(); renderAll();
+  toast('买点进入核对，还没改策略');
+}
+function commitBuyReview(sym){
+  const s = canonPlanSym(sym); if(!s) return;
+  const rev = (S.priceReview || {})[s];
+  if(!rev || rev.kind!=='levels') return;
+  const item = (S.planStrategy && S.planStrategy.symbols || []).find(x => canonPlanSym(x.symbol)===s);
+  if(!item){ toast('没有可改的本机策略'); return; }
+  item.levels = (rev.proposed||[]).slice();
+  S.planStrategy.updatedAt = beijingNowLabel();
+  pushPriceLog({t:beijingNowLabel(), sym:s, kind:'levels', before:rev.before||[], after:item.levels.slice()});
+  delete S.priceReview[s];
+  save(); renderAll();
+  toast('已按核对结果改本机买点');
 }
 
 function visibleBuyRows(){
@@ -2031,30 +2153,37 @@ function renderBuyPlanCard(){
   const rows = visibleBuyRows();
   const st = effectiveStrategy();
   let h = `<div class="card rd"><h2>📋 买点 <span class="grow"></span>${st._local?'<span class="badge local">本机策略</span>':''}<button class="sm" data-act="stratEdit">编辑策略</button></h2>`;
-  const levHeld = boughtLevered();
-  const levReached = ((P&&P.levered&&P.levered.reached_buy)||[]).filter(s => rows.some(r => canonPlanSym(r.symbol)===s) && (!levHeld || s===levHeld));
+  const levHeldNames = heldLeveredList();
+  const multiLev = levHeldNames.length > 1;
+  const levHeld = levHeldNames[0] || '';
+  const levReached = ((P&&P.levered&&P.levered.reached_buy)||[]).filter(s => rows.some(r => canonPlanSym(r.symbol)===s) && !levHeldNames.length);
   const exclusive = !st.rules || st.rules.leveredExclusive!==false;
-  if(exclusive && !levHeld && levReached.length){
-    h += `<div class="warnbox">买点提醒：${levReached.map(esc).join('、')} 已到买点，请只选买一只。</div>`;
+  if(multiLev){
+    h += `<div class="warnbox">杠杆 ETF 同时持有 ${levHeldNames.map(esc).join('、')}。不会自动删改这些持仓。在只留一只之前，不给出新的可执行买卖建议。</div>`;
+  } else if(exclusive && !levHeld && levReached.length){
+    h += `<div class="warnbox">到价待复核：${levReached.map(esc).join('、')}。这不是买入指令。三只杠杆 ETF 最多同时持有一只。</div>`;
   } else if(exclusive && levHeld){
-    h += `<div class="sub">已持有杠杆 ETF <b>${esc(levHeld)}</b>，其余只观察。</div>`;
+    h += `<div class="sub">已持有杠杆 ETF <b>${esc(levHeld)}</b>，其余只观察，不提示再买。</div>`;
   }
   if(!rows.length) h += '<div class="empty">暂无可见买点。</div>';
   rows.forEach(r => {
     const s = canonPlanSym(r.symbol);
     const px = r.price || (cloudPx(s)||{}).price;
     const lab = r.price_label || (cloudPx(s)||{}).label || '收盘';
-    const bought = r._bought, obs = r._observeOnly;
-    const hitNew = (r.newly_touched||[]).length;
-    const atBuy = !r.watch_only && !obs && !bought && !r._retiredHeld && (r.at_buy || (r.touched_now||[]).length);
-    const hit = sltpTouched(s, r, bought && (!isLev(s) || boughtLevered()===s));
+    const bought = r._bought;
+    const heldNow = hasHolding(s);
+    const mode = positionMode({hasQty: heldNow, levHeldCount: levHeldNames.length});
+    const obs = r._observeOnly || (mode.blockNewExecutable && isLev(s));
+    const hitNew = !heldNow && (r.newly_touched||[]).length;
+    const atBuy = !r.watch_only && !obs && !heldNow && !r._retiredHeld && (r.at_buy || (r.touched_now||[]).length);
+    const hit = sltpTouched(s, r, heldNow && !multiLev);
     const cls0 = (r.watch_only?' watch-only':'') + ((hit.sl||hit.tp)?' touched':hitNew?' touched':atBuy?' hit':'');
     let badges = '';
     if(r.watch_only) badges += '<span class="badge watch-only">只看不买</span>';
     if(obs) badges += '<span class="badge watch">只观察</span>';
     if(bought) badges += '<span class="badge">已买入</span>';
-    if(hitNew) badges += `<span class="badge new">新触及 ${(r.newly_touched||[]).map(x=>fmt(x)).join('、')}</span>`;
-    else if(atBuy) badges += '<span class="badge buy">买点提醒</span>';
+    if(hitNew) badges += `<span class="badge new">到价待复核 ${(r.newly_touched||[]).map(x=>fmt(x)).join('、')}</span>`;
+    else if(atBuy) badges += '<span class="badge buy">到价待复核</span>';
     if(hit.sl) badges += '<span class="badge new">已触及止损</span>';
     if(hit.tp) badges += '<span class="badge new">已触及止盈</span>';
     if(r._retiredHeld) badges += `<span class="badge warn">已换出·仍持有</span>`;
@@ -2070,13 +2199,14 @@ function renderBuyPlanCard(){
       <div class="row"><div class="grow"><b>${esc(s)}</b> <span class="sub">${esc(r.name||(PLAN_CORE[s]&&PLAN_CORE[s].name)||'')}</span>${badges}</div>
         <div class="px"><b class="${cls(r.change_pct)}">${px?('$'+fmt(px)):'—'}</b><span class="sub"> ${esc(lab)}</span><div class="${cls(r.change_pct)}">${fmtPct(r.change_pct)}</div>${extRefLine(s, px)}</div></div>
       <div class="gapline">${gap}</div>
+      ${heldNow ? holdLocalLine(s) : '<div class="sub">未持仓：只显示候选买点。止损止盈在实际持仓后才用于卖出复核。</div>'}
       ${pending}
       <details class="mini" data-fold="${esc(fid)}"${open?' open':''}>
         <summary>分批梯子与止盈止损</summary>
         ${renderLadder(r)}
         ${(r.notes||[]).map(n=>`<div class="sub" style="margin-top:4px">${esc(n)}</div>`).join('')}
         ${brk}
-        ${sltpRefHtml(s, r, bought && (!isLev(s) || boughtLevered()===s))}
+        ${sltpRefHtml(s, r, heldNow && !multiLev)}
         <div class="row" style="margin-top:6px">${boughtBtns(s)}</div>
       </details>
     </div>`;
@@ -2096,7 +2226,7 @@ function renderLeveredRulesCard(){
   if(!exclusive) body = '本机策略已关闭「杠杆 ETF 只拿一只」。请自行控制仓位。';
   else if(levHeld) body = `已标记买入杠杆 ETF <b>${esc(levHeld)}</b>。另外的只观察，不再提示买入；止损止盈只显示这一只。`;
   else body = `杠杆 ETF（${esc(names)}）同时只拿一只：哪只先到买点就买哪只；买了之后，另外的只观察、不提示买入。`;
-  body += '<div class="sub" style="margin-top:8px">核心买点来自你定下的梯子；补充批次是技术参考。止盈止损分两层：执行价（我的＞已定＞技术参考，触发和距离都用它）和最新参考价（始终显示，不会自动改执行价）。已买入的杠杆 ETF 与 NVDA 触及止盈止损时请整笔卖出、不要拆单。标记买入只存在本机浏览器。</div>';
+  body += '<div class="sub" style="margin-top:8px">核心买点来自你确认过的梯子。补充价只待复核；若小于或等于有效止损，标成冲突，不会当成加仓。执行价仍是我的＞已定＞已核实的技术参考。没核实的技术参考先隐藏。若卖出，整笔一次，两档止盈不是自动分批。标记和持仓只存在本机浏览器。</div>';
   return `<div class="card rd"><h2>♟️ 杠杆规则</h2><div class="note">${body}</div></div>`;
 }
 function renderHoldingsSummary(){
@@ -2216,7 +2346,7 @@ function renderSltpWatchCard(){
   if(P0) [].concat(P0.buy_table||[], P0.retired_table||[]).forEach(r => { const s0=canonPlanSym(r.symbol); if(r && (r.swapped_in || r.retired) && r.kind!=='levered' && r.kind!=='brk' && isBought(s0) && !names.includes(s0)) names.push(s0); });
   // 未买的不在此强调距离，买点卡里已有参考价
   if(!names.length) return '';
-  let h = `<div class="card rd"><h2>🎯 已买标的止盈止损</h2><div class="sub">只针对已买入的杠杆 ETF、NVDA，以及云端换进/换出过的已买标的。触及时请整笔卖出，不要拆单。执行价：我的 ＞ 已定 ＞ 技术参考；参考价单独显示，不会自动改执行价。距离按常规时段现价。</div>`;
+  let h = `<div class="card rd"><h2>🎯 已买标的止盈止损</h2><div class="sub">只针对实际持仓。执行价：我的 ＞ 已定 ＞ 已核实的技术参考。未核实的参考先隐藏。若卖出，整笔一次。距离的分母是常规时段现价，浮动盈亏的分母才是持仓成本。</div>`;
   names.forEach(s => {
     const row = planCloudRow(s) || { price:(cloudPx(s)||{}).price };
     h += `<div class="buy-card">${esc(s)}${sltpRefHtml(s, row, true)}</div>`;
@@ -3245,6 +3375,7 @@ function snapCollect(opts){
       hold:cp(S.hold||[]), watch:cp(S.watch||[]), events:cp(S.events||[]), manual:cp(S.manual||{}),
       plan:cp(S.plan||{}), planStrategy:cp(S.planStrategy),
       planHist: opts.noHist ? null : cp(S.planHist||[]),
+      priceLog: cp(S.priceLog||[]), priceReview: cp(S.priceReview||{}),
       settings:cp(S.settings||{}), fxManual:cp((S.fx&&S.fx.manual)||{}),
       ai:{ provider:S.ai.provider, ctxAuto:!!S.ai.ctxAuto, system:(S.ai.system && S.ai.system!==DEFAULT_SYSTEM) ? S.ai.system : null, providers:prov },
       layout:loadRadarLayout()
@@ -3315,6 +3446,8 @@ function snapApply(o){
   if(d.plan && typeof d.plan==='object') S.plan = merge(base.plan, d.plan);
   S.planStrategy = (d.planStrategy && typeof d.planStrategy==='object') ? d.planStrategy : null;
   if(Array.isArray(d.planHist)) S.planHist = d.planHist;
+  if(Array.isArray(d.priceLog)) S.priceLog = d.priceLog;
+  if(d.priceReview && typeof d.priceReview==='object') S.priceReview = d.priceReview;
   if(d.settings && typeof d.settings==='object') S.settings = merge(base.settings, d.settings);
   if(d.fxManual && typeof d.fxManual==='object'){ S.fx = S.fx || base.fx; S.fx.manual = d.fxManual; }
   if(d.ai && typeof d.ai==='object'){
@@ -4041,7 +4174,10 @@ const ACTIONS = {
     dlg._clear = () => { clearManualSltp(s); toast('已清除我的覆盖，改回已定/技术参考'); };
   },
   sltpApplyRef: a => confirmApplySltpRef(canonPlanSym(a.dataset.sym)),
+  sltpReviewOk: a => commitSltpReview(canonPlanSym(a.dataset.sym)),
+  sltpReviewCancel: a => cancelSltpReview(canonPlanSym(a.dataset.sym)),
   buyApplyRef: a => confirmApplyBuyRef(canonPlanSym(a.dataset.sym)),
+  buyReviewOk: a => commitBuyReview(canonPlanSym(a.dataset.sym)),
   layoutEdit: () => { radarLayoutEdit = true; renderRadar(); },
   layoutDone: () => { radarLayoutEdit = false; renderRadar(); },
   layoutReset: () => { saveRadarLayout(defaultRadarLayout()); toast('已恢复默认布局'); renderRadar(); },
