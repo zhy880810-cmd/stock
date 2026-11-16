@@ -846,8 +846,8 @@ function computeAlerts(){
         out.push({lv:2, text:`${nm} 已确认常规收盘 ${sym}${fmt(closePx)}，到止盈复核 ${hit}。任一档都是整笔复核。已复核的一档不再重复提醒，另一档仍会单独触发。`});
       }
     }
-    if(Number.isFinite(r.plp) && r.plp <= -A.lossPct) out.push({lv:2, text:`${nm} 相对持仓成本 ${fmtPct(r.plp)}（分母：成本，不是距止损），超过预警线 -${A.lossPct}%`});
-    if(Number.isFinite(r.p.pct) && r.p.pct <= -A.dayPct) out.push({lv:1, text:`${nm} 相对上一常规收盘 ${fmtPct(r.p.pct)}（分母：上一收盘），超过预警线 -${A.dayPct}%`});
+    if(Number.isFinite(r.plp) && r.plp <= -A.lossPct) out.push({lv:2, text:`${nm} 相对持仓成本 ${fmtPct(r.plp)}，超过预警线 -${A.lossPct}%`});
+    if(Number.isFinite(r.p.pct) && r.p.pct <= -A.dayPct) out.push({lv:1, text:`${nm} 相对上一常规收盘 ${fmtPct(r.p.pct)}，超过预警线 -${A.dayPct}%`});
   });
   return out.sort((a,b)=>b.lv-a.lv);
 }
@@ -1031,7 +1031,7 @@ function holdLocalLine(sym){
   const cost = cq>0 ? cq/q : NaN;
   const px = sessionPx(s, planCloudRow(s)||{});
   const plp = (cost>0 && px>0) ? (px/cost-1)*100 : NaN;
-  const plTxt = Number.isFinite(plp) ? `浮动 ${fmtPct(plp)}（分母：持仓成本，不是距止损）` : '浮动盈亏暂缺';
+  const plTxt = Number.isFinite(plp) ? `浮动 ${fmtPct(plp)}` : '浮动盈亏暂缺';
   return `<div class="sub">持仓 ${fmt(q)}，成本 ${Number.isFinite(cost)?fmt(cost):'—'}，${plTxt}。这些数字只在本机显示。</div>`;
 }
 function hasHolding(sym){
@@ -1980,8 +1980,8 @@ function gapText(row){
   if(hasHolding(canonPlanSym(row.symbol))) return '已有持仓。候选买点梯子只作历史记录，不是加仓指令。';
   if(!(row.nearest_level>0) || !Number.isFinite(row.gap_pct)) return '买点缺口暂缺。';
   const lv = row.nearest_level, gp = row.gap_price, pct = row.gap_pct;
-  if(pct<=0) return `已到候选买点 ${fmt(lv)}（相对常规时段现价 ${pctAbs(pct)}，分母是现价）。这是复核，不是买入指令。`;
-  return `距候选买点 ${fmt(lv)} 还差 ${fmt(gp)}（相对常规时段现价再跌 ${pctAbs(pct)}，分母是现价）。`;
+  if(pct<=0) return `已到候选买点 ${fmt(lv)}（再跌 ${pctAbs(pct)}）。这是复核，不是买入指令。`;
+  return `距候选买点 ${fmt(lv)} 还差 ${fmt(gp)}（再跌 ${pctAbs(pct)}）。`;
 }
 function pctAbs(x){ return (Math.abs(x)).toFixed(1)+'%'; }
 /* 距离一律以常规时段现价为分母：止损=现价还要再跌多少%，止盈=现价还要再涨多少%。不用盘外价。 */
@@ -1991,7 +1991,7 @@ function sltpDistBits(t, px){
     let d = '';
     if(px>0){
       if(px<=t.sl) d = `，常规时段现价已低于 ${fmt(t.sl-px)}`;
-      else d = `，再跌 ${pctAbs((px-t.sl)/px*100)}（分母：常规时段现价）`;
+      else d = `，再跌 ${pctAbs((px-t.sl)/px*100)}`;
     }
     bits.push(`止损复核价（仅提醒） ${fmt(t.sl)}（${t.slSrc}）${d}`);
   } else bits.push('止损 —');
@@ -2000,7 +2000,7 @@ function sltpDistBits(t, px){
     const parts = t.tps.map((v,i) => {
       const nm = tier ? (i?'二档 ':'一档 ') : '';
       if(!(px>0)) return `${nm}${fmt(v)}`;
-      return px>=v ? `${nm}${fmt(v)} 已到复核价` : `${nm}${fmt(v)}（再涨 ${pctAbs((v-px)/px*100)}，分母：常规时段现价）`;
+      return px>=v ? `${nm}${fmt(v)} 已到复核价` : `${nm}${fmt(v)}（再涨 ${pctAbs((v-px)/px*100)}）`;
     });
     bits.push(`止盈 ${parts.join(' ／ ')}（${t.tpSrc}）`);
   } else bits.push('止盈 —');
@@ -2512,7 +2512,7 @@ function renderSltpWatchCard(){
   if(P0) [].concat(P0.buy_table||[], P0.retired_table||[]).forEach(r => { const s0=canonPlanSym(r.symbol); if(r && (r.swapped_in || r.retired) && r.kind!=='levered' && r.kind!=='brk' && isBought(s0) && !names.includes(s0)) names.push(s0); });
   // 未买的不在此强调距离，买点卡里已有参考价
   if(!names.length) return '';
-  let h = `<div class="card rd"><h2>🎯 已买标的止盈止损</h2><div class="sub">只针对实际持仓。执行价：我的 ＞ 已定 ＞ 已核实的技术参考。未核实的参考先隐藏。若卖出，整笔一次。距离的分母是常规时段现价，浮动盈亏的分母才是持仓成本。</div>`;
+  let h = `<div class="card rd"><h2>🎯 已买标的止盈止损</h2><div class="sub">只针对实际持仓。执行价：我的 ＞ 已定 ＞ 已核实的技术参考。未核实的参考先隐藏。若卖出，整笔一次。</div>`;
   names.forEach(s => {
     const row = planCloudRow(s) || { price:(cloudPx(s)||{}).price };
     h += `<div class="buy-card">${esc(s)}${sltpRefHtml(s, row, true)}</div>`;
