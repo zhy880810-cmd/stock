@@ -170,6 +170,7 @@ class LayerSafetyTests(unittest.TestCase):
         self.assertTrue(u.technical_allowed(row))
         rs = u._resolve_sltp(row, 140)
         self.assertEqual(rs["ref"]["sl"], 120)
+        self.assertIsNone(rs["sl"])
         self.assertFalse(rs["ref"].get("hidden"))
         etf = {"symbol": "TQQQ", "price": 55, "ref_sl": 40, "ref_tp": 70, "fixed_sl": 45, "fixed_tp": [60]}
         self.assertFalse(u.technical_allowed(etf))

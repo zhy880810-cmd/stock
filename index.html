@@ -840,8 +840,10 @@ function computeAlerts(){
     if(closePx>0 && r.h.take>0 && closePx >= r.h.take) out.push({lv:2, text:`${nm} 已确认常规收盘 ${sym}${fmt(closePx)}，到止盈复核价 ${sym}${fmt(r.h.take)}。只是整笔复核，不是下单。`});
     if(ps && (isLev(ps) || ps==='NVDA') && isBought(ps) && closePx>0){
       const t0 = sltpOf(ps);
-      if(!(r.h.stop>0) && t0.sl>0 && closePx<=t0.sl) out.push({lv:2, text:`${nm} 已确认常规收盘 ${sym}${fmt(closePx)}，触及${t0.slSrc}止损 ${sym}${fmt(t0.sl)}。只是整笔复核。`});
-      if(!(r.h.take>0) && t0.tps && t0.tps.some(v => v>0 && closePx>=v && !tpIsAcked(ps, v))){
+      const slOk = t0.slSrc==='我的' || t0.slSrc==='已定';
+      const tpOk = t0.tpSrc==='我的' || t0.tpSrc==='已定';
+      if(!(r.h.stop>0) && slOk && t0.sl>0 && closePx<=t0.sl) out.push({lv:2, text:`${nm} 已确认常规收盘 ${sym}${fmt(closePx)}，触及${t0.slSrc}止损 ${sym}${fmt(t0.sl)}。只是整笔复核。`});
+      if(!(r.h.take>0) && tpOk && t0.tps && t0.tps.some(v => v>0 && closePx>=v && !tpIsAcked(ps, v))){
         const hit = t0.tps.filter(v => v>0 && closePx>=v && !tpIsAcked(ps, v)).map(v => sym+fmt(v)).join('、');
         out.push({lv:2, text:`${nm} 已确认常规收盘 ${sym}${fmt(closePx)}，到止盈复核 ${hit}。任一档都是整笔复核。已复核的一档不再重复提醒，另一档仍会单独触发。`});
       }
@@ -1137,7 +1139,7 @@ function sessionPx(sym, row){
 }
 function nearPx(a,b){ return Number.isFinite(a)&&Number.isFinite(b)&&Math.abs(a-b)<=1e-6; }
 /* === PRICE_LAYERS_BEGIN === */
-/* 执行价：我的 ＞ 已定 ＞ 技术参考。参考价始终是自动技术/AI 计算，不含我的/已定，缺则暂无参考，不编造。 */
+/* 执行价只来自「我的」或「已定」。技术参考只在 ref，确认采用之前不算执行、不算候选风险。 */
 function etfAuditSymbol(sym){
   const s = String(sym||'').toUpperCase();
   return s==='TQQQ' || s==='SOXL' || s==='KORU';
@@ -1190,22 +1192,19 @@ function resolvePriceLayers(input){
   else if(cloudTp>0){ rTp=cloudTp; if(!rSrc) rSrc='技术参考'; }
   const hasRef = rSl>0 || rTp>0;
   let sl=NaN, slSrc='', slMine=false, tps=[], tpSrc='', tpMine=false;
+  /* 执行价只来自已确认的「我的」或「已定」。技术参考只出现在 ref，采用并确认之前不算执行。 */
   if(loc.sl>0){ sl=loc.sl; slSrc='我的'; slMine=true; }
   else if(stS.sl>0){ sl=stS.sl; slSrc='我的'; slMine=true; }
   else if(fxSl>0){ sl=fxSl; slSrc='已定'; }
-  else if(costTech && costTech.sl>0){ sl=costTech.sl; slSrc='技术参考·按成本'; }
-  else if(cloudSl>0){ sl=cloudSl; slSrc='技术参考'; }
   if(loc.tp>0){ tps=[loc.tp]; tpSrc='我的'; tpMine=true; }
   else if(stS.tp>0){ tps=[stS.tp]; tpSrc='我的'; tpMine=true; }
   else if(fxTps.length){ tps=fxTps.slice(0,2); tpSrc='已定'; }
-  else if(costTech && costTech.tp>0){ tps=[costTech.tp]; tpSrc='技术参考·按成本'; }
-  else if(cloudTp>0){ tps=[cloudTp]; tpSrc='技术参考'; }
   const tp = tps.length ? tps[0] : NaN;
   const sameSl = !(rSl>0) || (sl>0 && Math.abs(sl-rSl)<1e-6);
   const sameTp = !(rTp>0) || (tps.length===1 && Math.abs(tps[0]-rTp)<1e-6);
   const refDiffers = hasRef && !(sameSl && (sameTp || !(rTp>0)));
   return {
-    srcLab: (tpSrc||slSrc||'技术参考'), slSrc, tpSrc, slMine, tpMine, sl, tp, tps,
+    srcLab: (tpSrc||slSrc||''), slSrc, tpSrc, slMine, tpMine, sl, tp, tps,
     custom: slMine||tpMine, fixed:(slSrc==='已定'||tpSrc==='已定'),
     asof: input.asof||'', reason: rReason, url: input.url||'', stale:!!input.stale,
     dataNote: input.dataNote||'',
@@ -1220,6 +1219,18 @@ function refApplyPatch(loc, ref){
   if(ref && ref.sl>0) o.sl = ref.sl; else if(o.sl==null) delete o.sl;
   if(ref && ref.tp>0) o.tp = ref.tp; else if(o.tp==null) delete o.tp;
   return o;
+}
+function quoteProvenance(row, cloud){
+  row = row || {};
+  cloud = cloud || {};
+  if(row._liveSrc) return {source:String(row._liveSrc), live:true, cutoff:'', updated:''};
+  const named = row.quote_source || (row.hist_audit && row.hist_audit.quote_source) || '';
+  const via = row.quote_via || (row.hist_audit && row.hist_audit.quote_via) || '';
+  const cutoff = (row.hist_audit && row.hist_audit.cutoff) || row.date || '';
+  const updated = cloud.updated_at_beijing ? (String(cloud.updated_at_beijing)+' 北京时间') : (cloud.updated_at ? (String(cloud.updated_at)+' UTC') : '');
+  if(named) return {source: via ? (named+'（经 '+via+'）') : named, live:false, cutoff:cutoff, updated:updated};
+  if(row.price>0 || row.close>0) return {source:'Yahoo Finance（经 yfinance；旧版数据未附逐条元数据）', legacy:true, cutoff:cutoff, updated:updated};
+  return {source:'旧数据未附来源，待下次更新写入', legacy:false, cutoff:'', updated:''};
 }
 function officialClosePx(row){
   if(!row) return NaN;
@@ -1258,6 +1269,169 @@ function positionMode(opts){
     wholePosition: true
   };
 }
+function executionLevelText(t, opts){
+  t = t || {}; opts = opts || {};
+  const allow = opts.quotePct === true;
+  const px = Number(opts.px);
+  const lines = [];
+  if(Number(t.sl)>0){
+    const line = {kind:'sl', price:Number(t.sl), src:t.slSrc||'', pct:null, hit:false};
+    if(allow && px>0){
+      if(px<=line.price) line.hit = true;
+      else line.pct = (px-line.price)/px*100;
+    }
+    lines.push(line);
+  }
+  (t.tps||[]).forEach((v,i) => {
+    if(!(Number(v)>0)) return;
+    const line = {kind:'tp', price:Number(v), src:t.tpSrc||'', idx:i, pct:null, hit:false};
+    if(allow && px>0){
+      if(px>=Number(v)) line.hit = true;
+      else line.pct = (Number(v)-px)/px*100;
+    }
+    lines.push(line);
+  });
+  return {pending: lines.length===0, lines:lines, quotePct: allow && px>0 && lines.length>0};
+}
+function layerFmt(n){
+  const v = Number(n);
+  if(!Number.isFinite(v)) return '—';
+  const abs = Math.abs(v);
+  const d = abs>=100 ? 2 : abs>=1 ? 2 : 4;
+  let s = v.toFixed(d);
+  s = s.replace(/0+$/,'').replace(/\.$/,'');
+  return s;
+}
+function renderExecutionLine(t, opts){
+  const view = executionLevelText(t, opts);
+  if(view.pending) return '止盈止损待实际买入方案确认';
+  const bits = [];
+  const sl = view.lines.filter(l => l.kind==='sl')[0];
+  if(sl){
+    let d = '';
+    if(sl.hit) d = '，已低于';
+    else if(sl.pct!=null) d = '，再跌 '+Math.abs(sl.pct).toFixed(1)+'%';
+    bits.push('止损复核价（仅提醒） '+layerFmt(sl.price)+'（'+sl.src+'）'+d);
+  }
+  const tps = view.lines.filter(l => l.kind==='tp');
+  if(tps.length){
+    const tier = tps.length>1;
+    const parts = tps.map((line,i) => {
+      const nm = tier ? (i?'二档 ':'一档 ') : '';
+      if(line.hit) return nm+layerFmt(line.price)+' 已到复核价';
+      if(line.pct!=null) return nm+layerFmt(line.price)+'（再涨 '+Math.abs(line.pct).toFixed(1)+'%）';
+      return nm+layerFmt(line.price);
+    });
+    bits.push('止盈 '+parts.join(' ／ ')+'（'+tps[0].src+'）');
+  }
+  return bits.join('　');
+}
+function sltpCardModel(t, opts){
+  t = t || {}; opts = opts || {};
+  const held = !!opts.held;
+  const exec = executionLevelText(t, {quotePct:false, px:opts.px});
+  const risks = [];
+  if(Number(t.sl)>0){
+    if(held && Number(opts.cost)>0){
+      const r = entryRiskReturn(opts.cost, t.sl, t.tps);
+      if(r) risks.push({basis:'cost', entry:Number(opts.cost), risk:r.risk, rets:r.rets});
+    } else if(!held){
+      (opts.entries||[]).forEach(e => {
+        const r = entryRiskReturn(e, t.sl, t.tps);
+        if(r) risks.push({basis:'entry', entry:Number(e), risk:r.risk, rets:r.rets});
+      });
+    }
+  }
+  return {
+    pending: exec.pending,
+    exec: exec,
+    line: renderExecutionLine(t, {quotePct:false, px:opts.px}),
+    risks: risks,
+    footnote: '距买点按常规收盘；候选到止损/止盈按该买点；持仓盈亏按含费成本。'
+  };
+}
+function provenanceText(row, cloud){
+  const p = quoteProvenance(row, cloud);
+  const cutoff = p.cutoff || '旧数据未附截止交易日';
+  const upd = p.updated || '旧数据未附更新时间';
+  const live = p.live ? '（浏览器即时参考，不是云端收盘）' : '';
+  return `来源：${p.source}${live} · 截止交易日 ${cutoff} · 更新 ${upd}`;
+}
+function inputDraft(t){
+  t = t || {};
+  const ref = t.ref || {};
+  const slSrc = t.slSrc || '';
+  const tpSrc = t.tpSrc || '';
+  const tpList = (t.tps || []).map(Number).filter(x => x>0);
+  const slOk = (slSrc==='我的' || slSrc==='已定') && Number(t.sl)>0;
+  const tpOk = (tpSrc==='我的' || tpSrc==='已定') && tpList.length>0;
+  return {
+    headline: '已确认的「我的」优先于先前同意的「已定」。都没有则未设定。技术参考不是执行价。',
+    status: (slOk || tpOk) ? '已确认' : '未设定',
+    slValue: slOk ? Number(t.sl) : '',
+    tpValue: (tpOk && tpList.length===1) ? tpList[0] : '',
+    slPlaceholder: '',
+    tpPlaceholder: '',
+    agreedSl: Number(t.fixedSl)>0 ? Number(t.fixedSl) : null,
+    agreedTp: (t.fixedTp || []).map(Number).filter(x => x>0),
+    refHint: ref.has ? { sl: ref.sl>0 ? Number(ref.sl) : null, tp: ref.tp>0 ? Number(ref.tp) : null, src: ref.src || '', confirmed: false } : null
+  };
+}
+function stageInputReview(t, draft){
+  t = t || {}; draft = draft || {};
+  const slSrc = t.slSrc || '';
+  const tpSrc = t.tpSrc || '';
+  return {
+    kind: 'sltp',
+    writesNow: false,
+    before: {
+      sl: (slSrc==='我的' || slSrc==='已定') && Number(t.sl)>0 ? Number(t.sl) : null,
+      tp: (tpSrc==='我的' || tpSrc==='已定') && Number(t.tp)>0 ? Number(t.tp) : null,
+      slSrc: slSrc, tpSrc: tpSrc
+    },
+    proposed: { sl: Number(draft.sl)>0 ? Number(draft.sl) : null, tp: Number(draft.tp)>0 ? Number(draft.tp) : null },
+    impact: '确认后才写入本机「我的」。留空的一侧不改。取消则不改。技术参考不会自动补上。'
+  };
+}
+function beginClearOverride(t){
+  t = t || {};
+  const mineSl = t.slSrc==='我的' && Number(t.sl)>0;
+  const mineTp = t.tpSrc==='我的' && Number(t.tp)>0;
+  if(!mineSl && !mineTp) return { started: false, review: null, reason: '没有我的覆盖' };
+  return {
+    started: true,
+    review: {
+      kind: 'sltp-clear',
+      writesNow: false,
+      before: { sl: mineSl ? Number(t.sl) : null, tp: mineTp ? Number(t.tp) : null, slSrc: '我的', tpSrc: mineTp ? '我的' : '' },
+      baseline: { sl: Number(t.fixedSl)>0 ? Number(t.fixedSl) : null, tps: (t.fixedTp || []).map(Number).filter(x => x>0) },
+      proposed: { sl: null, tp: null }
+    }
+  };
+}
+function applyClearOverride(review, decision){
+  const before = Object.assign({}, (review && review.before) || {});
+  if(decision!=='confirm') return { applied: false, cleared: false, loc: before, effective: before, history: null };
+  const base = (review && review.baseline) || {};
+  const tps = (base.tps || []).map(Number).filter(x => x>0);
+  const hasBase = Number(base.sl)>0 || tps.length>0;
+  const effective = {
+    sl: Number(base.sl)>0 ? Number(base.sl) : null,
+    tp: tps.length ? tps[0] : null,
+    tps: tps.slice(),
+    src: hasBase ? '已定' : ''
+  };
+  return {
+    applied: true,
+    cleared: true,
+    loc: {},
+    effective: effective,
+    history: {
+      before: { sl: before.sl>0 ? before.sl : null, tp: before.tp>0 ? before.tp : null },
+      after: { sl: effective.sl, tp: effective.tp, src: effective.src || '未设定' }
+    }
+  };
+}
 function applyReview(review, decision){
   const before = Object.assign({}, (review && review.before) || {});
   if(decision!=='confirm') return {applied:false, loc:before, history:null};
@@ -1269,9 +1443,7 @@ function applyReview(review, decision){
   }};
 }
 /* === PRICE_LAYERS_END === */
-/* 止损/止盈取值优先级（每一侧分别算）：我的（页面/持仓里填的）＞ 已定（config.json 里用户确认的固定价）＞ 技术参考。
-   技术参考：已持有且有成本 → 按成本算；否则用云端按买点梯子算的 ref_sl/ref_tp。
-   自动参考始终单独给出，有「我的」或「已定」时也不隐藏。 */
+/* 执行价：我的 ＞ 已定。技术参考始终单独给出，确认采用之前不进入执行价。 */
 function sltpOf(sym){
   const s = canonPlanSym(sym);
   const loc = (ensurePlan().sltp||{})[s] || {};
@@ -1310,11 +1482,11 @@ function planCloudRow(sym){
 function cloudPx(sym){
   const s = canonPlanSym(sym);
   const row = planCloudRow(s);
-  if(row && row.price>0) return { price:row.price, prev:row.prev_close, pct:row.change_pct, date:row.date, label:row.price_label||'收盘', stale:!!row.stale };
+  if(row && row.price>0) return { price:row.price, prev:row.prev_close, pct:row.change_pct, date:row.date, label:row.price_label||'收盘', stale:!!row.stale, origin:'cloud' };
   const rec = CLOUD && CLOUD.prices && (CLOUD.prices[s] || CLOUD.prices[s.replace('.','-')]);
-  if(rec && rec.price>0) return { price:rec.price, prev:rec.prev_close, pct:rec.change_pct, date:rec.date, label:rec.price_label||'收盘', stale:!!rec.stale };
+  if(rec && rec.price>0) return { price:rec.price, prev:rec.prev_close, pct:rec.change_pct, date:rec.date, label:rec.price_label||'收盘', stale:!!rec.stale, origin:'cloud' };
   const q = priceOf(planKey(s));
-  if(q && q.price>0) return { price:q.price, prev:q.prev, pct:q.pct, date:q.date, label:'行情', stale:!!q.stale };
+  if(q && q.price>0) return { price:q.price, prev:q.prev, pct:q.pct, date:'', label:'即时报价', stale:!!q.stale, origin:'live', liveSrc:q.src||'腾讯' };
   return null;
 }
 
@@ -1985,26 +2157,10 @@ function gapText(row){
 }
 function pctAbs(x){ return (Math.abs(x)).toFixed(1)+'%'; }
 /* 距离一律以常规时段现价为分母：止损=现价还要再跌多少%，止盈=现价还要再涨多少%。不用盘外价。 */
-function sltpDistBits(t, px){
-  const bits = [];
-  if(t.sl>0){
-    let d = '';
-    if(px>0){
-      if(px<=t.sl) d = `，常规时段现价已低于 ${fmt(t.sl-px)}`;
-      else d = `，再跌 ${pctAbs((px-t.sl)/px*100)}`;
-    }
-    bits.push(`止损复核价（仅提醒） ${fmt(t.sl)}（${t.slSrc}）${d}`);
-  } else bits.push('止损 —');
-  if(t.tps && t.tps.length){
-    const tier = t.tps.length>1;
-    const parts = t.tps.map((v,i) => {
-      const nm = tier ? (i?'二档 ':'一档 ') : '';
-      if(!(px>0)) return `${nm}${fmt(v)}`;
-      return px>=v ? `${nm}${fmt(v)} 已到复核价` : `${nm}${fmt(v)}（再涨 ${pctAbs((v-px)/px*100)}）`;
-    });
-    bits.push(`止盈 ${parts.join(' ／ ')}（${t.tpSrc}）`);
-  } else bits.push('止盈 —');
-  return bits;
+function sltpDistBits(t, px, opts){
+  const line = renderExecutionLine(t, {quotePct: !!(opts && opts.quotePct), px:px});
+  if(!line || line==='止盈止损待实际买入方案确认') return [];
+  return [line];
 }
 function sltpRefLineHtml(t){
   const r = t.ref || {};
@@ -2067,7 +2223,21 @@ function atrBufferHtml(sym, t){
 function priceReviewHtml(sym){
   const s = canonPlanSym(sym);
   const rev = (S.priceReview || {})[s];
-  if(!rev || rev.kind!=='sltp') return '';
+  if(!rev || (rev.kind!=='sltp' && rev.kind!=='sltp-clear')) return '';
+  if(rev.kind==='sltp-clear'){
+    const base = rev.baseline || {};
+    const agreed = (base.sl>0 || (base.tps && base.tps.length));
+    const after = agreed
+      ? `回到已定（止损 ${base.sl>0?fmt(base.sl):'—'}，止盈 ${(base.tps||[]).filter(x=>x>0).map(v=>fmt(v)).join(' / ')||'—'}）`
+      : '未设定';
+    return `<div class="warnbox" style="margin-top:6px"><b>核对中，还没清除「我的」。</b>
+      <div class="sub" style="margin-top:4px">清除后：${esc(after)}。不会改用技术参考。</div>
+      <div class="sub">${esc(rev.impact||'确认后只去掉本机「我的」。取消则保持现在的「我的」。')}</div>
+      <div class="row" style="margin-top:6px">
+        <button class="sm" data-act="sltpReviewOk" data-sym="${esc(s)}">确认清除我的覆盖</button>
+        <button class="sm" data-act="sltpReviewCancel" data-sym="${esc(s)}">取消</button>
+      </div></div>`;
+  }
   const b = rev.before || {}, p = rev.proposed || {};
   return `<div class="warnbox" style="margin-top:6px"><b>核对中，还没改执行价。</b>
     <div class="sub" style="margin-top:4px">止损 ${esc(b.sl>0?fmt(b.sl)+'（'+(b.slSrc||'')+'）':'—')} → ${esc(p.sl>0?fmt(p.sl):'该侧不变')}<br>
@@ -2098,40 +2268,33 @@ function verifyStateHtml(t){
   return `<div class="${cls}" style="margin-top:4px"><b>${esc(st)}</b>。${esc(t.audit.note||'检查不可用')}</div>`;
 }
 function entryRiskHtml(sym, t, row){
-  if(!(t && t.sl>0)) return '';
-  const entries = posLevels((row&&row.levels)||[]);
-  if(!entries.length || hasHolding(sym)){
-    if(!hasHolding(sym)) return '';
-    const cost = holdCostOf(sym);
-    if(!(cost>0)) return '';
-    const r = entryRiskReturn(cost, t.sl, t.tps);
-    if(!r) return '';
-    return `<div class="sub">相对含费成本 ${fmt(cost)}：到止损 ${r.risk.toFixed(1)}%；${r.rets.map(x=>'到止盈 '+fmt(x.tp)+' '+x.ret.toFixed(1)+'%').join('；')}</div>`;
-  }
-  return entries.map(e => {
-    const r = entryRiskReturn(e, t.sl, t.tps);
-    if(!r) return '';
-    return `<div class="sub">从候选 ${fmt(e)}：到止损 ${r.risk==null?'—':r.risk.toFixed(1)+'%'}；${r.rets.map(x=>'到止盈 '+fmt(x.tp)+' '+x.ret.toFixed(1)+'%').join('；')}</div>`;
+  const held = hasHolding(sym);
+  const model = sltpCardModel(t, {
+    held: held,
+    cost: held ? holdCostOf(sym) : NaN,
+    entries: posLevels((row&&row.levels)||[]),
+    px: officialClosePx(row)
+  });
+  return model.risks.map(r => {
+    if(r.basis==='cost') return `<div class="sub">相对含费成本 ${fmt(r.entry)}：到止损 ${r.risk.toFixed(1)}%；${r.rets.map(x=>'到止盈 '+fmt(x.tp)+' '+x.ret.toFixed(1)+'%').join('；')}</div>`;
+    return `<div class="sub">从候选 ${fmt(r.entry)}：到止损 ${r.risk==null?'—':r.risk.toFixed(1)+'%'}；${r.rets.map(x=>'到止盈 '+fmt(x.tp)+' '+x.ret.toFixed(1)+'%').join('；')}</div>`;
   }).join('');
 }
 function cardMetaLine(row){
-  const a = row && row.hist_audit;
-  const src = (a && a.source) || (a && a.status==='ordinary' ? '行情（普通标的，无杠杆ETF专项校验）' : '');
-  const cutoff = (a && a.cutoff) || (row && row.date) || '';
-  let upd = '';
-  try{ upd = (typeof CLOUD!=='undefined' && CLOUD && (CLOUD.updated_at_beijing || CLOUD.updated_at)) || ''; }catch(_){ upd = ''; }
-  return `<div class="sub">来源 ${esc(src||'未知')} · 截止交易日 ${esc(cutoff||'未知')} · 更新 ${esc(upd||'未知')}</div>`;
+  let cloud = null;
+  try{ cloud = (typeof CLOUD!=='undefined') ? CLOUD : null; }catch(_){ cloud = null; }
+  return `<div class="sub">${esc(provenanceText(row, cloud||{}))}</div>`;
 }
 function sltpRefHtml(sym, row, bought){
   const t = sltpOf(sym);
   const s = canonPlanSym(sym);
   const px = officialClosePx(row);
-  const bits = sltpDistBits(t, px>0 ? px : NaN);
-  const miss = !(t.sl>0 && t.tp>0) && !(t.ref && t.ref.has);
-  const hitSl = bought && t.sl>0 && px>0 && px<=t.sl;
-  const hitTp = bought && t.tps && t.tps.some(v => v>0 && px>=v);
+  const held = hasHolding(s);
+  const card = sltpCardModel(t, {held:held, px:px, entries:posLevels((row&&row.levels)||[]), cost:held?holdCostOf(s):NaN});
+  const hitSl = held && t.sl>0 && (t.slSrc==='我的'||t.slSrc==='已定') && px>0 && px<=t.sl;
+  const hitTp = held && t.tps && (t.tpSrc==='我的'||t.tpSrc==='已定') && t.tps.some(v => v>0 && px>=v);
   let box = `<div class="slbox px-layers ${hitSl||hitTp?'':'sub'}">`;
-  box += `<div class="exec-line"><span class="lab">执行</span>${bits.join('　')}</div>`;
+  box += `<div class="exec-line"><span class="lab">执行</span>${esc(card.line)}</div>`;
   box += `<div class="ref-line">${sltpRefLineHtml(t)}`;
   if(!(t.audit && t.audit.hide) && t.ref && t.ref.has && t.ref.differs){
     box += ` <button class="sm" data-act="sltpApplyRef" data-sym="${esc(s)}">采用</button>`;
@@ -2152,12 +2315,8 @@ function sltpRefHtml(sym, row, bought){
   box += `<div class="sub" style="margin-top:2px">只提醒，不自动卖出。需自行下单或另设券商条件单；跳空可能导致更差成交价，止损限价单也可能不成交。</div>`;
   box += verifyStateHtml(t);
   box += entryRiskHtml(s, t, row);
-  box += `<div class="sub">分母：距买点用已确认的常规收盘；每个候选买点到止损/止盈用该买点本身；持仓盈亏用含手续费的成本。</div>`;
+  box += `<div class="sub">${esc(card.footnote)}</div>`;
   box += `<div class="row" style="margin-top:6px"><button class="sm" data-act="sltpEdit" data-sym="${esc(s)}">改我的价</button></div></div>`;
-  if(miss){
-    if(s==='NVDA' && !hasHolding(s)) box = `<div class="sub">止盈止损待实际买入方案确认</div>` + box;
-    else if(etfAuditSymbol(s)) box = `<div class="warnbox">请补上${esc(s)}的止损 / 止盈（暂无已定价，也暂无参考），不要编造，按你自己的规则填。</div>` + box;
-  }
   const liveTp = (t.tps||[]).filter(v => v>0 && px>=v && !tpIsAcked(s, v));
   const ackedTp = (t.tps||[]).filter(v => v>0 && px>=v && tpIsAcked(s, v));
   if(ackedTp.length) box += `<div class="sub">已复核并选择继续持有：${ackedTp.map(v=>fmt(v)).join('、')}。只对当前数量、成本和这一档有效；另一档仍会单独提醒。</div>`;
@@ -2190,8 +2349,8 @@ function clearManualSltp(sym){
 function writeManualSltp(sym, sl, tp){
   const s = canonPlanSym(sym);
   const o = ensurePlan().sltp[s]||{};
-  if(sl>0) o.sl=sl; else delete o.sl;
-  if(tp>0) o.tp=tp; else delete o.tp;
+  if(sl>0) o.sl=sl;
+  if(tp>0) o.tp=tp;
   if(o.sl||o.tp) ensurePlan().sltp[s]=o; else delete ensurePlan().sltp[s];
   const h=(S.hold||[]).find(x=>planSymFromKey(x.key)===s);
   if(h){ if(sl>0) h.stop=sl; if(tp>0) h.take=tp; }
@@ -2215,9 +2374,20 @@ function commitSltpReview(sym){
   const s = canonPlanSym(sym); if(!s) return;
   const rev = (S.priceReview || {})[s];
   if(!rev) return;
+  if(rev.kind==='sltp-clear'){
+    const cleared = applyClearOverride(rev, 'confirm');
+    if(!cleared.applied) return;
+    clearManualSltp(s);
+    pushPriceLog({t:beijingNowLabel(), sym:s, kind:'sltp-clear', before:cleared.history.before, after:cleared.history.after});
+    delete S.priceReview[s];
+    save(); renderAll();
+    toast(cleared.effective && cleared.effective.src==='已定' ? '已清除我的覆盖，回到已定' : '已清除我的覆盖，当前未设定');
+    return;
+  }
   const result = applyReview({sym:s, before:rev.before, proposed:rev.proposed}, 'confirm');
   if(!result.applied) return;
-  writeManualSltp(s, result.loc.sl, result.loc.tp);
+  const proposed = rev.proposed || {};
+  writeManualSltp(s, proposed.sl, proposed.tp);
   pushPriceLog({t:beijingNowLabel(), sym:s, kind:'sltp', before:result.history.before, after:result.history.after});
   delete S.priceReview[s];
   save(); renderAll();
@@ -2267,6 +2437,7 @@ function visibleBuyRows(){
       const cloud = planCloudRow(s) || {};
       const px = cloudPx(s) || {};
       const q = priceOf(planKey(s));
+      const fromCloud = px.origin === 'cloud' || (!px.origin && Number(cloud.price)>0);
       const price = (px.price>0?px.price:0) || (cloud.price>0?cloud.price:0) || (q && q.price>0?q.price:0);
       const sameLv = levelsEqual(spec.levels, cloud.levels||[]);
       const notes = [];
@@ -2275,16 +2446,24 @@ function visibleBuyRows(){
       const row = Object.assign({}, cloud, {
         symbol:s, name:spec.name||cloud.name||s, kind:spec.kind||stratKind(s),
         notes, localStrategy:true, _levelsOverridden:!sameLv, _cloudLevels: posLevels(cloud.levels||[]),
+        _liveSrc: (!fromCloud && q && q.price>0) ? (q.src||'腾讯') : '',
         extra_tranches: sameLv ? (cloud.extra_tranches||[]) : [],
         newly_touched: sameLv ? (cloud.newly_touched||[]) : [],
         _pendingPrice: !(price>0)
       });
       if(price>0){
         row.price = price;
-        row.change_pct = Number.isFinite(px.pct)?px.pct:(Number.isFinite(cloud.change_pct)?cloud.change_pct:(q && Number.isFinite(q.pct)?q.pct:NaN));
-        row.prev_close = px.prev || cloud.prev_close;
-        row.date = px.date || cloud.date || (q && q.date);
-        row.price_label = (px.price>0 || cloud.price>0) ? (px.label || cloud.price_label || '收盘') : '即时报价';
+        if(!fromCloud){
+          row.price_label = '即时报价';
+          row.date = '';
+          row.close = null;
+          row.change_pct = (q && Number.isFinite(q.pct)) ? q.pct : (Number.isFinite(px.pct)?px.pct:NaN);
+        } else {
+          row.change_pct = Number.isFinite(px.pct)?px.pct:(Number.isFinite(cloud.change_pct)?cloud.change_pct:NaN);
+          row.prev_close = px.prev || cloud.prev_close;
+          row.date = px.date || cloud.date || '';
+          row.price_label = px.label || cloud.price_label || '收盘';
+        }
       } else {
         row.price = null; row.change_pct = NaN; row.price_label = '暂无报价';
         notes.push('云端还没有这只的收盘价和缺口。可点顶部「刷新行情」试取公开报价，或等下次每日任务跑完后再看。');
@@ -2307,6 +2486,16 @@ function visibleBuyRows(){
     r = Object.assign({}, r);
     const s = canonPlanSym(r.symbol);
     if(s==='BRK.B' && isBought(s)) continue;
+    if(!(Number(r.price)>0)){
+      const q = priceOf(planKey(s));
+      if(q && q.price>0){
+        r.price = q.price;
+        r.price_label = '即时报价';
+        r._liveSrc = q.src || '腾讯';
+        r.date = '';
+        r.close = null;
+      }
+    } else r._liveSrc = '';
     r._bought = isBought(s);
     r._observeOnly = !!(exclusive && isLev(s) && heldLev && heldLev!==s);
     out.push(r);
@@ -2392,7 +2581,7 @@ function renderLeveredRulesCard(){
   if(!exclusive) body = '本机策略已关闭「杠杆 ETF 只拿一只」。请自行控制仓位。';
   else if(levHeld) body = `已标记买入杠杆 ETF <b>${esc(levHeld)}</b>。另外的只观察，不再提示买入；止损止盈只显示这一只。`;
   else body = `杠杆 ETF（${esc(names)}）同时只拿一只：哪只先到买点就买哪只；买了之后，另外的只观察、不提示买入。`;
-  body += '<div class="sub" style="margin-top:8px">核心买点来自你确认过的梯子。补充价只待复核；若小于或等于有效止损，标成冲突，不会当成加仓。执行价仍是我的＞已定＞已核实的技术参考。没核实的技术参考先隐藏。若卖出，整笔一次，两档止盈不是自动分批。标记和持仓只存在本机浏览器。</div>';
+  body += '<div class="sub" style="margin-top:8px">核心买点来自你确认过的梯子。补充价只待复核；若小于或等于已确认止损，标成冲突，不会当成加仓。执行价只来自「我的」或「已定」。技术参考要先核对再采用。若卖出，整笔一次，两档止盈不是自动分批。标记和持仓只存在本机浏览器。</div>';
   return `<div class="card rd"><h2>♟️ 杠杆规则</h2><div class="note">${body}</div></div>`;
 }
 function renderHoldingsSummary(){
@@ -2512,7 +2701,7 @@ function renderSltpWatchCard(){
   if(P0) [].concat(P0.buy_table||[], P0.retired_table||[]).forEach(r => { const s0=canonPlanSym(r.symbol); if(r && (r.swapped_in || r.retired) && r.kind!=='levered' && r.kind!=='brk' && isBought(s0) && !names.includes(s0)) names.push(s0); });
   // 未买的不在此强调距离，买点卡里已有参考价
   if(!names.length) return '';
-  let h = `<div class="card rd"><h2>🎯 已买标的止盈止损</h2><div class="sub">只针对实际持仓。执行价：我的 ＞ 已定 ＞ 已核实的技术参考。未核实的参考先隐藏。若卖出，整笔一次。</div>`;
+  let h = `<div class="card rd"><h2>🎯 已买标的止盈止损</h2><div class="sub">只针对实际持仓。执行价只来自「我的」或「已定」。未确认的技术参考不触发。若卖出，整笔一次。</div>`;
   names.forEach(s => {
     const row = planCloudRow(s) || { price:(cloudPx(s)||{}).price };
     h += `<div class="buy-card">${esc(s)}${sltpRefHtml(s, row, true)}</div>`;
@@ -4326,29 +4515,38 @@ const ACTIONS = {
   sltpEdit: a => {
     const s=canonPlanSym(a.dataset.sym); if(!s) return;
     const t0=sltpOf(s);
-    const cur = `执行：止损 ${t0.sl>0?fmt(t0.sl)+' '+t0.slSrc:'—'}；止盈 ${t0.tps.length?t0.tps.map(v=>fmt(v)).join(' / ')+' '+t0.tpSrc:'—'}。`;
-    const refTxt = (t0.ref && t0.ref.has)
-      ? `最新参考：止损 ${t0.ref.sl>0?fmt(t0.ref.sl):'暂无'}，止盈 ${t0.ref.tp>0?fmt(t0.ref.tp):'暂无'}${t0.ref.src?'（'+t0.ref.src+'）':''}。采用需确认，不会自动改执行价。`
-      : '最新参考：暂无参考。';
+    const draft = inputDraft(t0);
+    const cur = draft.status==='未设定'
+      ? '执行：未设定。'
+      : `执行：止损 ${t0.sl>0?fmt(t0.sl)+' '+t0.slSrc:'未设定'}；止盈 ${t0.tps.length?t0.tps.map(v=>fmt(v)).join(' / ')+' '+t0.tpSrc:'未设定'}。`;
+    const agreedTxt = (draft.agreedSl || draft.agreedTp.length)
+      ? `已定：止损 ${draft.agreedSl?fmt(draft.agreedSl):'未设定'}，止盈 ${draft.agreedTp.length?draft.agreedTp.map(v=>fmt(v)).join(' / '):'未设定'}。`
+      : '已定：未设定。';
+    const refTxt = draft.refHint
+      ? `参考（未确认，不是执行价）：止损 ${draft.refHint.sl?fmt(draft.refHint.sl):'暂无'}，止盈 ${draft.refHint.tp?fmt(draft.refHint.tp):'暂无'}。`
+      : '参考：暂无参考。';
     openDlg(s+' 我的止盈止损',
-      `<div class="sub">优先级：我的 ＞ 已定（${t0.fixedSl||t0.fixedTp.length?'云端已有：止损 '+(t0.fixedSl?fmt(t0.fixedSl):'—')+'，止盈 '+(t0.fixedTp.length?t0.fixedTp.map(v=>fmt(v)).join(' / '):'—'):'云端暂无'}）＞ 技术参考。留空则不覆盖。仅作参考，不是下单指令。<br>${esc(cur)} ${esc(refTxt)}</div>
-       <label class="f">止损价（美元）</label><input id="slV" type="number" step="any" inputmode="decimal" value="${t0.slMine&&t0.sl>0?t0.sl:''}" placeholder="${t0.sl>0?t0.sl:''}">
-       <label class="f">止盈价（美元，只填一档；留空则用已定的两档）</label><input id="tpV" type="number" step="any" inputmode="decimal" value="${t0.tpMine&&t0.tp>0?t0.tp:''}" placeholder="${t0.tp>0?t0.tp:''}">
-       <div class="sub" style="margin-top:6px">单档止盈触及后会提醒整笔卖出，不要拆单。</div>`,
+      `<div class="sub">${esc(draft.headline)}<br>${esc(cur)}<br>${esc(agreedTxt)} ${esc(refTxt)}</div>
+       <label class="f">止损价（美元）</label><input id="slV" type="number" step="any" inputmode="decimal" value="${draft.slValue===''?'':draft.slValue}" placeholder="">
+       <label class="f">止盈价（美元，只填一档）</label><input id="tpV" type="number" step="any" inputmode="decimal" value="${draft.tpValue===''?'':draft.tpValue}" placeholder="">
+       <div class="sub" style="margin-top:6px">留空表示这一侧不改。要去掉本机「我的」，用「清除我的覆盖」，下一页确认后才会清除。单档止盈触及后会提醒整笔卖出，不要拆单。</div>`,
       '进入核对', () => {
-        const sl=num($('#slV').value), tp=num($('#tpV').value);
+        const staged = stageInputReview(t0, {sl:num($('#slV').value), tp:num($('#tpV').value)});
+        staged.at = beijingNowLabel();
         if(!S.priceReview || typeof S.priceReview!=='object') S.priceReview = {};
-        S.priceReview[s] = {
-          kind:'sltp', at: beijingNowLabel(),
-          before:{ sl:t0.sl>0?t0.sl:null, tp:t0.tp>0?t0.tp:null, slSrc:t0.slSrc||'', tpSrc:t0.tpSrc||'' },
-          proposed:{ sl:sl>0?sl:null, tp:tp>0?tp:null },
-          impact:'确认后才写入本机「我的」。填写的一侧会盖过已定执行价；留空的一侧保持现状。取消则不改。'
-        };
+        S.priceReview[s] = staged;
         save(); renderAll();
         toast('已进入核对，执行价还没改');
       },
       `<button class="sm" data-d="clear">清除我的覆盖</button>`);
-    dlg._clear = () => { clearManualSltp(s); toast('已清除我的覆盖，改回已定/技术参考'); };
+    dlg._clear = () => {
+      const begun = beginClearOverride(t0);
+      if(!begun.started){ toast('没有我的覆盖可清除'); return; }
+      if(!S.priceReview || typeof S.priceReview!=='object') S.priceReview = {};
+      S.priceReview[s] = Object.assign({ at: beijingNowLabel(), sym: s, impact: '确认后只去掉本机「我的」。有已定则回到已定，否则未设定。不会改用技术参考。取消则保持现在的「我的」。' }, begun.review);
+      save(); renderAll();
+      toast('已进入核对，还没清除');
+    };
   },
   sltpApplyRef: a => confirmApplySltpRef(canonPlanSym(a.dataset.sym)),
   sltpReviewOk: a => commitSltpReview(canonPlanSym(a.dataset.sym)),
@@ -4413,7 +4611,7 @@ function holdDialog(h){
      <div class="sub">杠杆 ETF、个股默认激进仓；宽基指数、债券/红利类默认保守仓，可改。</div>
      <label class="f">账户</label><select id="hAcc"><option value="ZA">ZA</option><option value="盈立">盈立</option></select>
      <div class="sub">默认 ZA = QQQM、SCHD；盈立 = BRK.B、杠杆 ETF、NVDA 及其他。</div>
-     <label class="f">止损价（可选；杠杆 ETF / NVDA 建议填写。留空则用雷达里的技术参考价）</label><input id="hS" type="number" step="any" inputmode="decimal" value="${h&&h.stop?h.stop:''}">
+     <label class="f">止损价（可选。留空则不设本机止损；未确认的技术参考不会当成执行价）</label><input id="hS" type="number" step="any" inputmode="decimal" value="${h&&h.stop?h.stop:''}">
      <label class="f">止盈价（可选；触及提醒整笔卖出，不要拆单）</label><input id="hT" type="number" step="any" inputmode="decimal" value="${h&&h.take?h.take:''}">
      ${!isNew?`<label class="f">手动价格（仅行情失败时使用，留空不用）</label><input id="hP" type="number" step="any" inputmode="decimal" value="${S.manual[key]?S.manual[key].price:''}">`:''}
      <div class="sub" style="margin-top:6px">计价货币：A股/基金=人民币，港股=港币，美股/加密=美元（加密按 USDT 计）。</div>`,

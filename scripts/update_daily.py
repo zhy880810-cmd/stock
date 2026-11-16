@@ -4,7 +4,7 @@
 
 - 不含任何持仓数量/成本/金额（隐私默认）。公开文件只写代码、价格、买点缺口和新闻。
 - 买点表、定投收盘价、距买点跌幅、标普 500 涨跌幅、止损/止盈/补充批次（技术参考：ATR + 近期高低点）均在本地计算，不由模型编造。
-- 止损/止盈分两层：执行价（我的＞已定＞技术参考，触发/距离/预警/微信推送都用它）和最新参考价（ATR/高低点技术计算，以及既有的 AI 策略参考）。参考价始终单独写出并显示，不会自动覆盖执行价。所有距离以常规时段现价为分母；日涨跌为常规时段，盘后单列。
+- 止损/止盈分两层：执行价只来自「我的」或已确认的「已定」。技术参考只作参考，确认采用之前不触发、不算候选风险。距买点用常规收盘；持仓盈亏用含费成本。日涨跌为常规时段，盘后单列。
 - AI（Grok / Gemini）主流程只调用一次，只负责：标普 500 涨跌榜每只一句原因、1–3 条大新闻（各附一个链接）、至多一条明显更好的机会（只给代码和理由，价格仍由本地算）。若这次返回无法解析为 JSON，再追加一次很短的「只输出 JSON」修复调用。
 - 明显更好的机会会由脚本直接自动替换计划里被点名的标的（无需用户确认）：当前计划写在 data.json 的 plan.active（只有代码、买点、名称），config.json 只是首次的种子；替换记录写在 plan.swap_log。被换出的标的进入 plan.retired（网页上只在你标记已买入/持仓里有它时继续显示止损止盈）。
 - 若设置了 SERVERCHAN_KEY，每次运行后推送一条简短中文摘要到微信（不含任何持仓金额）。
@@ -37,6 +37,10 @@ BJ = timezone(timedelta(hours=8))
 ET = ZoneInfo("America/New_York")
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DISCLAIMER = "仅供学习与记录参考，不构成投资建议。"
+QUOTE_SOURCE = "Yahoo Finance"
+QUOTE_VIA = "yfinance"
+LEGACY_QUOTE_LABEL = "Yahoo Finance（经 yfinance；旧版数据未附逐条元数据）"
+MISSING_QUOTE_LABEL = "旧数据未附来源，待下次更新写入"
 PLAN_DISCLAIMER = "三倍杠杆 ETF 只适合短线。以上不构成投资建议。"
 
 # 交易计划（写死在脚本里，不依赖用户改 config.json；也不写入任何持仓数量）
@@ -409,13 +413,15 @@ def fetch_one(sym, want_extended=False):
             "date": date,
             "currency": cur,
             "price_label": "盘中" if intraday else "收盘",
+            "quote_source": QUOTE_SOURCE,
+            "quote_via": QUOTE_VIA,
         }
         if hist_notes:
             rec["range_note"] = "".join(hist_notes)
         if want_extended:
             rec = _attach_extended(t, rec)
             rec = _attach_range(t, rec, sym)
-        return rec
+        return annotate_quote(rec)
 
     return retry(go, tries=3, delay=3, what=f"获取 {sym}")
 
@@ -879,6 +885,8 @@ def build_buy_row(spec, rec, err, prev_row, session_hint, beijing_date):
         "added": spec.get("added") or "",
         "extra_tranches": [],
         "tranche_levels": list(levels),
+        "quote_source": (rec or {}).get("quote_source") or "",
+        "quote_via": (rec or {}).get("quote_via") or "",
         "ref_sl": None,
         "ref_tp": None,
         "sl_tp_reason": "",
@@ -2544,38 +2552,99 @@ def _finalize_buy_row(row, ai_bits_tech, prev_row, adv_ai=None):
     return _attach_price_layers(row)
 
 
+def annotate_quote(rec):
+    """成功拉取的行情标明 Yahoo Finance / yfinance。过期回退的旧记录不在这里改写。"""
+    rec = dict(rec or {})
+    rec["quote_source"] = QUOTE_SOURCE
+    rec["quote_via"] = QUOTE_VIA
+    audit = rec.get("hist_audit")
+    if isinstance(audit, dict):
+        audit = dict(audit)
+        audit["quote_source"] = QUOTE_SOURCE
+        audit["quote_via"] = QUOTE_VIA
+        rec["hist_audit"] = audit
+    return rec
+
+
+def describe_quote_source(row):
+    """云端行的来源。没有逐条字段时，只有本脚本这条 yfinance 管道可以标成旧版 Yahoo 说明。"""
+    row = row or {}
+    named = row.get("quote_source") or ""
+    via = row.get("quote_via") or ""
+    audit = row.get("hist_audit") if isinstance(row.get("hist_audit"), dict) else {}
+    if not named:
+        named = (audit or {}).get("quote_source") or ""
+        via = via or (audit or {}).get("quote_via") or ""
+    if named:
+        return f"{named}（经 {via}）" if via else str(named)
+    if row.get("price") or row.get("close"):
+        return LEGACY_QUOTE_LABEL
+    return MISSING_QUOTE_LABEL
+
+
+def quote_banner(data, row=None):
+    """推送/页面用的来源、截止日、更新时间。更新时间只取文件里的北京时间，不用打开页面的时刻。"""
+    data = data or {}
+    if row:
+        src = describe_quote_source(row)
+        audit = row.get("hist_audit") if isinstance(row.get("hist_audit"), dict) else {}
+        cutoff = (audit or {}).get("cutoff") or row.get("date") or ""
+        cut = str(cutoff) if cutoff else "旧数据未附截止交易日"
+    else:
+        pipe = data.get("quote_pipeline") if isinstance(data.get("quote_pipeline"), dict) else {}
+        prices = data.get("prices") or {}
+        table = ((data.get("plan") or {}).get("buy_table") or [])
+        if pipe.get("source"):
+            via = pipe.get("via") or ""
+            src = f"{pipe['source']}（经 {via}）" if via else str(pipe["source"])
+        elif prices or table:
+            src = LEGACY_QUOTE_LABEL
+        else:
+            src = MISSING_QUOTE_LABEL
+        cut = "各标的以其 date 字段为准" if (prices or table) else "旧数据未附截止交易日"
+    upd = data.get("updated_at_beijing") or ""
+    upd_txt = f"{upd} 北京时间" if upd else "旧数据未附更新时间"
+    return f"来源：{src} · 截止交易日 {cut} · 更新 {upd_txt}"
+
+
 def _resolve_sltp(row, px=None, my_sl=None, my_tp=None, cost=None):
-    """止损/止盈取值优先级（每一侧分别算）：
-    我的（页面/密钥里填的）> 已定（config 里用户确认的固定价）> 技术参考。
-    技术参考：已持有且知道成本时按成本算，否则按买点梯子算（云端 buy_table 里的 ref_sl/ref_tp）。
-    返回执行价 {"sl","sl_src","tps","tp_src"}，以及始终单独给出的自动参考 {"ref": {...}}。
-    参考价不会覆盖执行价。"""
+    """执行价只来自「我的」或「已定」。技术参考只留在 ref，确认采用之前不触发、不算候选风险。"""
     row = row or {}
     out = {"sl": None, "sl_src": "", "tps": [], "tp_src": ""}
-    tech = None
-    if cost and cost > 0:
-        base_px = px if px else _session_px(row)
-        if base_px:
-            tech = compute_tech_levels(base_px, [cost], row, basis="cost")
-    allow_tech = technical_allowed(row)
     if my_sl:
         out["sl"], out["sl_src"] = float(my_sl), "我的"
     elif row.get("fixed_sl"):
         out["sl"], out["sl_src"] = float(row["fixed_sl"]), "已定"
-    elif allow_tech and tech and tech.get("stop_loss"):
-        out["sl"], out["sl_src"] = float(tech["stop_loss"]), "技术参考·按成本"
-    elif allow_tech and row.get("ref_sl"):
-        out["sl"], out["sl_src"] = float(row["ref_sl"]), "技术参考"
     if my_tp:
         out["tps"], out["tp_src"] = [float(my_tp)], "我的"
     elif row.get("fixed_tp"):
         out["tps"], out["tp_src"] = [float(x) for x in row["fixed_tp"]], "已定"
-    elif allow_tech and tech and tech.get("take_profit"):
-        out["tps"], out["tp_src"] = [float(tech["take_profit"])], "技术参考·按成本"
-    elif allow_tech and row.get("ref_tp"):
-        out["tps"], out["tp_src"] = [float(row["ref_tp"])], "技术参考"
     out["ref"] = _auto_ref(row, px, cost)
     return out
+
+
+def _watch_sltp_text(rs):
+    """观察仓单元格：已确认的价位本身，不含相对现价的百分比。未确认则待确认，技术参考另列。"""
+    rs = rs or {}
+    sl, tps = rs.get("sl"), rs.get("tps") or []
+    if sl or tps:
+        sltp = (f"止损 {_fpx(sl)}（{rs.get('sl_src') or '—'}）" if sl else "止损 —") + " / " + \
+               (f"止盈 {_tp_tier_text(tps, None)}（{rs.get('tp_src') or '—'}）" if tps else "止盈 —")
+    else:
+        sltp = "止盈止损待确认"
+    ref = rs.get("ref") or {}
+    if ref.get("hidden"):
+        sltp += "<br>参考：暂不显示（复权未核实，不编造）"
+    elif ref.get("sl") or ref.get("tp"):
+        same_sl = (sl is not None and ref.get("sl") is not None and abs(float(sl) - float(ref["sl"])) < 1e-6)
+        same_tp = (bool(tps) and ref.get("tp") is not None and len(tps) == 1 and abs(float(tps[0]) - float(ref["tp"])) < 1e-6)
+        if not (same_sl and (same_tp or not tps)):
+            rsl = f"止损 {_fpx(ref['sl'])}" if ref.get("sl") else "止损 暂无参考"
+            rtp = f"止盈 {_fpx(ref['tp'])}" if ref.get("tp") else "止盈 暂无参考"
+            sltp += f"<br>参考：{rsl} / {rtp}"
+    elif sl or tps:
+        sltp += "<br>参考：暂无参考"
+    return sltp
 
 
 def _sltp_for_position(pos, data):
@@ -2633,26 +2702,25 @@ def _build_holdings_push(data, holdings):
         dist = []
         if close_px is None and (sl or tps):
             dist.append("尚未确认常规收盘，止损和止盈都不触发")
-        if sl:
+        confirmed_sl = bool(sl) and rs.get("sl_src") in ("我的", "已定")
+        confirmed_tp = bool(tps) and rs.get("tp_src") in ("我的", "已定")
+        if confirmed_sl:
             if close_px is not None and float(close_px) <= float(sl) + 1e-9:
                 marks.append("🚨收盘触及止损")
                 hit_alerts.append(f"**{pos['symbol']}** 已确认常规收盘 {_fusd(close_px)}，触及{rs['sl_src']}止损 {_fusd(sl)}。这只是整笔卖出复核，不是下单，也不会自动改去看另一档。")
-                dist.append(f"🚨止损 {_fpx(sl)}（{rs['sl_src']}）收盘已触及（分母：已确认的常规收盘）")
-            elif close_px is not None:
-                dist.append(f"止损 {_fpx(sl)}（{rs['sl_src']}）：再跌 {_dist_to_stop(close_px, sl):.1f}% 才到（分母：已确认的常规收盘）")
+                dist.append(f"止损 {_fpx(sl)}（{rs['sl_src']}）收盘已触及")
             else:
                 dist.append(f"止损 {_fpx(sl)}（{rs['sl_src']}）")
-        if tps:
+        if confirmed_tp:
             if close_px is not None and float(close_px) >= float(tps[0]) - 1e-9:
                 marks.append("🚨收盘到止盈复核")
                 both = f"两档 {_fusd(tps[0])} 和 {_fusd(tps[1])} 都是整笔卖出复核，先到的一档不会改去盯另一档。" if len(tps) > 1 else f"止盈 {_fusd(tps[0])} 是整笔卖出复核。"
                 hit_alerts.append(f"**{pos['symbol']}** 已确认常规收盘 {_fusd(close_px)}，{both}不是下单。")
-                dist.append(f"🚨止盈复核 {_tp_tier_text(tps, close_px)}（{rs['tp_src']}，两档都是整笔复核，分母：已确认的常规收盘）" if len(tps) > 1 else f"🚨止盈复核 {_tp_tier_text(tps, close_px)}（分母：已确认的常规收盘）")
-            elif close_px is not None:
-                tier = "；".join((f"第{'一二'[i]}档 " if len(tps) > 1 else "") + f"{_fpx(t)} 再涨 {_dist_to_tp(close_px, t):.1f}%（分母：已确认的常规收盘）" for i, t in enumerate(tps))
-                dist.append(f"止盈复核（{rs['tp_src']}，两档各自整笔复核，先到的不切换目标）：{tier}" if len(tps) > 1 else f"止盈（{rs['tp_src']}）：{tier}")
+                dist.append(f"止盈复核 {_tp_tier_text(tps, close_px)}（{rs['tp_src']}，两档都是整笔复核）" if len(tps) > 1 else f"止盈复核 {_tp_tier_text(tps, close_px)}（{rs['tp_src']}）")
             else:
                 dist.append(f"止盈 {_tp_tier_text(tps, px)}（{rs['tp_src']}）")
+        if not confirmed_sl and not confirmed_tp:
+            dist.append("执行止盈止损待确认（未采用的技术参考不触发提醒）")
         ref = rs.get("ref") or {}
         if ref.get("hidden"):
             dist.append("参考：暂不显示（复权未核实，不编造）")
@@ -2727,6 +2795,7 @@ def build_push_text(data, ai_ok, holdings=None):
     out = []
     ms = ((data.get("radar") or {}).get("market_summary") or {}).get("headline")
     out.append(f"**美股收盘**（北京时间 {data.get('updated_at_beijing') or ''} 更新）" + (f"\n{_md(ms, 90)}" if ms else ""))
+    out.append(quote_banner(data))
     if held_sec:
         out.append(held_sec)
 
@@ -2752,34 +2821,10 @@ def build_push_text(data, ai_ok, holdings=None):
                 mark += " ⚠️到价待复核"
             if r.get("swapped_in"):
                 mark += " 🆕换入"
-            sltp = ""
-            px0 = _session_px(r)
-            rs = _resolve_sltp(r, px0)
-            if rs["sl"] or rs["tps"]:
-                dsl = dtp = ""
-                if rs["sl"] and px0:
-                    d_ = _dist_to_stop(px0, rs["sl"])
-                    dsl = f"，再跌 {d_:.1f}%（分母：常规时段现价）" if d_ > 0 else "，常规时段现价已低于它"
-                if rs["tps"] and px0:
-                    d_ = _dist_to_tp(px0, rs["tps"][0])
-                    dtp = f"，再涨 {d_:.1f}%（分母：常规时段现价）" if d_ > 0 else "，常规时段现价已高于它"
-                sltp = (f"止损 {_fpx(rs['sl'])}（{rs['sl_src'] or '—'}{dsl}）" if rs["sl"] else "止损 —") + " / " + \
-                       (f"止盈 {_tp_tier_text(rs['tps'], px0)}（{rs['tp_src'] or '—'}{dtp}）" if rs["tps"] else "止盈 —")
-                ref = rs.get("ref") or {}
-                if ref.get("hidden"):
-                    sltp += "<br>参考：暂不显示（复权未核实，不编造）"
-                elif ref.get("sl") or ref.get("tp"):
-                    same_sl = (rs["sl"] is not None and ref.get("sl") is not None and abs(float(rs["sl"]) - float(ref["sl"])) < 1e-6)
-                    same_tp = (bool(rs["tps"]) and ref.get("tp") is not None and len(rs["tps"]) == 1 and abs(float(rs["tps"][0]) - float(ref["tp"])) < 1e-6)
-                    if not (same_sl and (same_tp or not rs["tps"])):
-                        rsl = f"止损 {_fpx(ref['sl'])}" if ref.get("sl") else "止损 暂无参考"
-                        rtp = f"止盈 {_fpx(ref['tp'])}" if ref.get("tp") else "止盈 暂无参考"
-                        sltp += f"<br>参考：{rsl} / {rtp}"
-                elif rs["sl"] or rs["tps"]:
-                    sltp += "<br>参考：暂无参考"
-                conflicts = [p for p in (r.get("proposed_tranches") or []) if isinstance(p, dict) and p.get("conflict")]
-                if conflicts:
-                    sltp += "<br>补充价与有效止损冲突，不作为加仓"
+            sltp = _watch_sltp_text(_resolve_sltp(r, _session_px(r)))
+            conflicts = [p for p in (r.get("proposed_tranches") or []) if isinstance(p, dict) and p.get("conflict")]
+            if conflicts:
+                sltp += "<br>补充价与有效止损冲突，不作为加仓"
             gp = r.get("gap_pct")
             if r.get("watch_only") or observe_only:
                 gap = "不提示"
@@ -2803,7 +2848,7 @@ def build_push_text(data, ai_ok, holdings=None):
         if notes:
             lines += [""] + [f"- {n}" for n in notes]
         if any(r.get("ref_sl") or r.get("ref_tp") or r.get("fixed_sl") or r.get("fixed_tp") for r in ordered):
-            lines.append("\n止盈止损分两层：执行价（我的＞已定＞技术参考，触发和距离都用它）和最新参考价（技术计算，有则另列，不会自动改执行价）。距离都以常规时段现价为分母。日涨跌是常规时段，盘后另标。不是下单指令。已持有的杠杆 ETF 和 NVDA 触及卖点时，按你已定的计划执行。")
+            lines.append("\n止盈止损分两层：执行价只来自「我的」或「已定」。技术参考另列，确认采用之前不触发。距买点用常规收盘。不是下单指令。")
         out.append("\n".join(lines))
 
     lev = plan.get("levered") or {}
@@ -3054,6 +3099,7 @@ def main():
         "schema": 2,
         "updated_at": now.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "updated_at_beijing": today_bj,
+        "quote_pipeline": {"source": QUOTE_SOURCE, "via": QUOTE_VIA},
         "watchlist": effective_watchlist(cfg["watchlist"]),
         "names": dict(cfg.get("names", {}), **{s["yf"]: s["name"] for s in PLAN_SPECS if s.get("from")}),
         "prices": prices,

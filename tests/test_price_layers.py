@@ -87,14 +87,19 @@ class ResolveLayersTests(unittest.TestCase):
         self.assertEqual(rs["tp_src"], "已定")
         self.assertEqual(rs["ref"]["sl"], 42.0)
 
-        r2 = row(ref_sl=42.0, ref_tp=70.0, fixed_sl=None, fixed_tp=[], hist_audit=verified_audit())
-        rs2 = u._resolve_sltp(r2, 48.0)
-        self.assertEqual(rs2["sl"], 42.0)
-        self.assertEqual(rs2["sl_src"], "技术参考")
-        self.assertEqual(rs2["tps"], [70.0])
-        self.assertEqual(rs2["tp_src"], "技术参考")
-        self.assertEqual(rs2["ref"]["sl"], 42.0)
-        self.assertEqual(rs2["ref"]["tp"], 70.0)
+        r2 = row(symbol="BRK.B", kind="stock", ref_sl=490.0, ref_tp=596.92, fixed_sl=None, fixed_tp=[], price=500.0, close=500.0)
+        rs2 = u._resolve_sltp(r2, 500.0)
+        self.assertIsNone(rs2["sl"])
+        self.assertEqual(rs2["sl_src"], "")
+        self.assertEqual(rs2["tps"], [])
+        self.assertEqual(rs2["tp_src"], "")
+        self.assertEqual(rs2["ref"]["sl"], 490.0)
+        self.assertEqual(rs2["ref"]["tp"], 596.92)
+        cell = u._watch_sltp_text(rs2)
+        self.assertIn("止盈止损待确认", cell)
+        self.assertIn("参考：", cell)
+        self.assertNotIn("再跌", cell)
+        self.assertNotIn("分母", cell)
 
     def test_no_reference_says_empty_never_invents(self):
         r = row(ref_sl=None, ref_tp=None, fixed_sl=45, fixed_tp=[60], atr14=None, low_3m=None, high_3m=None, low_20d=None)
@@ -200,6 +205,72 @@ class ApplySemanticsTests(unittest.TestCase):
         self.assertEqual(cancelled, loc)
         self.assertEqual(applied, {"sl": 42.0, "tp": 70.0})
         self.assertNotEqual(applied, loc)
+
+
+class ProvenanceAndAlertTests(unittest.TestCase):
+    def test_unconfirmed_technical_does_not_alert_even_with_a_holding(self):
+        data = {
+            "updated_at_beijing": "2026-11-16 08:50",
+            "prices": {"BRK.B": {"price": 500, "close": 500, "price_label": "收盘", "date": "2026-11-14"}},
+            "plan": {"buy_table": [{
+                "symbol": "BRK.B", "kind": "stock", "price": 500, "close": 500,
+                "price_label": "收盘", "date": "2026-11-14", "ref_sl": 490, "ref_tp": 596.92,
+            }]},
+        }
+        holdings = {"capital": 1000, "cash": 0, "positions": [
+            {"symbol": "BRK.B", "qty": 1, "cost": 480, "account": "ZA", "sl": None, "tp": None},
+        ]}
+        text, _, _ = u._build_holdings_push(data, holdings)
+        self.assertNotIn("触及", text)
+        self.assertIn("待确认", text)
+        self.assertIn("参考：", text)
+        self.assertNotIn("再跌", text)
+
+    def test_agreed_stop_still_alerts_and_empty_cell_has_no_quote_percent(self):
+        agreed = row(symbol="KORU", fixed_sl=6, fixed_tp=[8.5, 10.5], ref_sl=5, ref_tp=12,
+                     price=7.2, close=7.2, hist_audit=verified_audit())
+        cell = u._watch_sltp_text(u._resolve_sltp(agreed, 7.2))
+        self.assertIn("6", cell)
+        self.assertNotIn("再跌", cell)
+        self.assertNotIn("分母", cell)
+        data = {
+            "prices": {"TQQQ": {"price": 40, "close": 40, "price_label": "收盘"}},
+            "plan": {"buy_table": [row(price=40, close=40, price_label="收盘", fixed_sl=45, fixed_tp=[60])]},
+        }
+        holdings = {"capital": 1000, "cash": 0, "positions": [
+            {"symbol": "TQQQ", "qty": 1, "cost": 50, "account": "ZA", "sl": None, "tp": None},
+        ]}
+        text, _, _ = u._build_holdings_push(data, holdings)
+        self.assertIn("触及", text)
+        self.assertIn("已定", text)
+
+    def test_quote_provenance_legacy_new_and_missing(self):
+        self.assertEqual(u.describe_quote_source({"price": 490, "date": "2026-11-14"}), u.LEGACY_QUOTE_LABEL)
+        named = u.describe_quote_source({"price": 490, "quote_source": "Yahoo Finance", "quote_via": "yfinance"})
+        self.assertEqual(named, "Yahoo Finance（经 yfinance）")
+        self.assertNotIn("旧版", named)
+        self.assertEqual(u.describe_quote_source({}), u.MISSING_QUOTE_LABEL)
+        banner = u.quote_banner({"prices": {"BRK.B": {"price": 1}}, "updated_at_beijing": "2026-11-16 08:50"})
+        self.assertIn(u.LEGACY_QUOTE_LABEL, banner)
+        self.assertIn("2026-11-16 08:50 北京时间", banner)
+        self.assertNotIn("腾讯", banner)
+        fresh = u.quote_banner(
+            {"updated_at_beijing": "2026-11-16 08:50"},
+            {"price": 490, "date": "2026-11-14", "quote_source": "Yahoo Finance", "quote_via": "yfinance"},
+        )
+        self.assertIn("截止交易日 2026-11-14", fresh)
+        self.assertNotIn("旧版数据未附逐条", fresh)
+        self.assertIn("旧数据未附更新时间", u.quote_banner({"prices": {"X": {"price": 1}}}))
+        ann = u.annotate_quote({"price": 1, "hist_audit": {"status": "ordinary"}})
+        self.assertEqual(ann["quote_source"], "Yahoo Finance")
+        self.assertEqual(ann["quote_via"], "yfinance")
+        self.assertEqual(ann["hist_audit"]["quote_source"], "Yahoo Finance")
+
+    def test_sources_do_not_keep_the_old_fallback_slogan(self):
+        with open(u.__file__, encoding="utf-8") as f:
+            src = f.read()
+        self.assertNotIn("我的＞已定＞技术参考", src)
+        self.assertNotIn("我的 > 已定 > 技术参考", src)
 
 
 if __name__ == "__main__":
