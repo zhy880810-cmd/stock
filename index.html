@@ -195,6 +195,7 @@ details.ref-fold > summary::-webkit-details-marker,details.sltp-saved > summary:
 details.ref-fold > summary::before,details.sltp-saved > summary::before{content:"▸ ";color:var(--sub)}
 details.ref-fold[open] > summary::before,details.sltp-saved[open] > summary::before{content:"▾ "}
 details.ref-fold .ref-line,details.sltp-saved .sub{font-weight:400}
+details.ref-fold:not([open]) > :not(summary),details.sltp-saved:not([open]) > :not(summary){display:none!important}
 button.sm:disabled,button.sm.is-disabled{opacity:.55;cursor:not-allowed}
 .slhit{border:2px solid var(--danger);background:rgba(220,38,38,.15);padding:10px;border-radius:10px;margin:8px 0}
 .chart-tip{font-size:13px;background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:8px 10px;margin-top:8px}
@@ -1042,7 +1043,7 @@ function holdLocalLine(sym){
   const px = officialGapPx(row);
   const plp = (cost>0 && px>0) ? (px/cost-1)*100 : NaN;
   const plTxt = Number.isFinite(plp) ? `浮动 ${fmtPct(plp)}` : '浮动盈亏暂缺（缺官方常规收盘）';
-  return `<div class="sub">持仓 ${fmt(q)}，成本 ${Number.isFinite(cost)?fmt(cost):'—'}，${plTxt}。盈亏相对含费成本，只在本机显示。</div>`;
+  return `<div class="sub">持仓 ${fmt(q)}，成本 ${Number.isFinite(cost)?fmt(cost):'—'}，${plTxt}。这些数字只在本机显示。</div>`;
 }
 function hasHolding(sym){
   const key = planKey(sym), alt = 'us:' + canonPlanSym(sym).replace('.','-');
@@ -1297,6 +1298,10 @@ function sltpAdoptGate(t, opts){
   if(audit.status!=='verified') return {canAdopt:false, fold:true, suggestionOnly:true, reason:'依据不足或数据未核实，仅作建议'};
   if(!ref.differs) return {canAdopt:false, fold:true, suggestionOnly:false, reason:'参考与已确认价相同'};
   return {canAdopt:true, fold:true, suggestionOnly:false, reason:''};
+}
+function shouldShowSltpAdopt(gate){
+  /* 空仓、只看不买、未确认或未核验时不出现「采用」，避免看起来像可执行候选。 */
+  return !!(gate && gate.canAdopt);
 }
 function filterProposedBuyLevels(levels, stop){
   const out = {ok:[], conflict:[]};
@@ -2254,10 +2259,10 @@ function renderLadder(row, opts){
       const showLv = lv.length ? lv.map(v=>fmt(v)).join(', ') : '暂无';
       let btn = '';
       if(gate.canAdopt) btn = ` <button class="sm" data-act="buyApplyRef" data-sym="${esc(s)}">采用</button>`;
-      else if(lv.length) btn = ` <button class="sm is-disabled" disabled title="${esc(gate.reason||'不可采用')}">采用</button><span class="sub"> ${esc(gate.reason||'仅建议，不可采用')}</span>`;
-      else btn = `<div class="sub">参考买点/补仓建议：暂无核实后的建议。有核实结果后会显示在这里，不会自动改已确认买点。</div>`;
+      else if(lv.length) btn = `<div class="sub">${esc(gate.reason||'仅作建议，不能采用。')}</div>`;
+      else btn = `<div class="sub">暂无核实后的建议。</div>`;
       out += `<details class="ref-fold"><summary>参考买点 / 补仓建议（不会自动覆盖已确认买点）</summary>
-        <div class="px-layers ref-line"><span class="lab">参考</span>${lv.length?('买点 '+showLv):'暂无核实建议'}${btn}</div>
+        <div class="px-layers ref-line"><span class="lab">参考</span>${lv.length?('买点 '+showLv):'暂无核实建议'}</div>${btn}
         <div class="sub">依据：${esc(basis)}。${esc(confTxt)}</div>
       </details>`;
     }
@@ -2420,18 +2425,18 @@ function technicalRefFoldHtml(t, sym, card){
   const r = t.ref || {};
   const hasBits = !!(r.has || (t.audit && t.audit.hide) || r.aiSl>0 || r.aiTp>0);
   let inner = `<div class="ref-line">${sltpRefLineHtml(t)}`;
-  if(gate.canAdopt){
+  if(shouldShowSltpAdopt(gate)){
     inner += ` <button class="sm" data-act="sltpApplyRef" data-sym="${esc(s)}">采用</button>`;
-  } else if(r.has){
-    inner += ` <button class="sm is-disabled" disabled title="${esc(gate.reason||'不可采用')}">采用</button><span class="sub"> ${esc(gate.reason||'仅建议，不可采用')}</span>`;
   }
   inner += `</div>`;
+  if(r.has && !shouldShowSltpAdopt(gate)){
+    inner += `<div class="sub">仅作建议，不能采用为执行价。</div>`;
+  }
   if(r.reason) inner += `<div class="sub">依据：${esc(r.reason)}${r.src?(' · 来源 '+esc(r.src)):''}${t.asof?(' · 数据日 '+esc(t.asof)):''}</div>`;
-  else if(r.has) inner += `<div class="sub">依据不足或未逐条核验。此为折叠参考，不是执行规则，也不会按现价计算风险距离。</div>`;
   inner += auditDetailsHtml(t);
   if(t.dataNote) inner += `<div class="sub"><span class="badge warn">数据提示</span> ${esc(t.dataNote)}</div>`;
   inner += verifyStateHtml(t);
-  if(!hasBits && !t.dataNote) inner += `<div class="sub">暂无技术参考。若后续有已核实建议，会显示在这里，不会自动改执行价。</div>`;
+  if(!hasBits && !t.dataNote) inner += `<div class="sub">暂无技术参考。</div>`;
   return `<details class="ref-fold"><summary>技术参考（未确认，非执行规则）</summary>${inner}</details>`;
 }
 function sltpRefHtml(sym, row, bought){
@@ -2449,13 +2454,14 @@ function sltpRefHtml(sym, row, bought){
       const slTxt = (t.slSrc==='我的'||t.slSrc==='已定') && t.sl>0 ? (fmt(t.sl)+'（'+t.slSrc+'）') : '未设定';
       const tpTxt = (t.tpSrc==='我的'||t.tpSrc==='已定') && (t.tps||[]).some(v=>v>0) ? ((t.tps||[]).filter(v=>v>0).map(v=>fmt(v)).join(' / ')+'（'+t.tpSrc+'）') : '未设定';
       box += `<details class="sltp-saved"><summary>已保存的约定止盈止损（空仓不展示，成交后生效）</summary>
-        <div class="sub">止损 ${esc(slTxt)}，止盈 ${esc(tpTxt)}。录入实际成交后自动作为有效规则。空仓不计算距现价或距收盘的止盈止损距离。</div>
+        <div class="sub">止损 ${esc(slTxt)}，止盈 ${esc(tpTxt)}。</div>
         ${priceReviewHtml(s)}${editBtn}
       </details>`;
     } else {
       box += `<div class="sub">止盈止损待实际买入方案确认</div>${priceReviewHtml(s)}${editBtn}`;
     }
-    box += `<div class="sub">${esc(card.footnote)}</div>${refFold}</div>`;
+    box += refFold;
+    box += `</div>`;
     return box;
   }
   const hitSl = t.sl>0 && (t.slSrc==='我的'||t.slSrc==='已定') && px>0 && px<=t.sl;
@@ -2725,7 +2731,7 @@ function renderBuyPlanCard(){
     if(r._retiredHeld) badges += `<span class="badge warn">已换出·仍持有</span>`;
     else if(r.swapped_in) badges += '<span class="badge new">新换入</span>';
     if(r.stale) badges += '<span class="badge warn">过期</span>';
-    const gap = r.watch_only ? '财报前只看不买' : (obs ? '只观察，不提示买入' : gapText(r));
+    const gap = obs && !r.watch_only ? '只观察，不提示买入' : gapText(r);
     const pending = r._pendingPrice ? '<div class="sub">云端还没有收盘价。可点顶部「刷新行情」，或等下次每日任务。</div>' : '';
     const brk = (s==='BRK.B' && !bought && (effectiveStrategy().rules.brkDecideBy) && todayKey()>=effectiveStrategy().rules.brkDecideBy)
       ? '<div class="warnbox">已到 '+esc(effectiveStrategy().rules.brkDecideBy)+' 仍未标记买入，请决定要不要直接买。</div>' : '';
@@ -2736,7 +2742,7 @@ function renderBuyPlanCard(){
         <div class="px"><b class="${cls(r.change_pct)}">${px?('$'+fmt(px)):'—'}</b><span class="sub"> ${esc(lab)}</span><div class="${cls(r.change_pct)}">${fmtPct(r.change_pct)}</div>${extRefLine(s, px)}</div></div>
       <div class="gapline">${gap}</div>
       ${cardMetaLine(r)}
-      ${heldNow ? holdLocalLine(s) : '<div class="sub">未持仓：只显示已确认买点及距官方常规收盘的剩余距离。止盈止损已保存的约定规则在录入成交后才显示并生效。</div>'}
+      ${heldNow ? holdLocalLine(s) : '<div class="sub">未持仓：只显示已确认买点及距官方常规收盘的剩余距离；已保存的约定止盈止损在录入成交后才显示并生效。</div>'}
       ${pending}
       <details class="mini" data-fold="${esc(fid)}"${open?' open':''}>
         <summary>${heldNow?'分批梯子与止盈止损':'分批梯子'}</summary>
