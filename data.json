@@ -1,8 +1,8 @@
 {
   "example": false,
   "schema": 2,
-  "updated_at": "2026-11-17T01:45:53Z",
-  "updated_at_beijing": "2026-11-17 09:45",
+  "updated_at": "2026-11-17T01:57:45Z",
+  "updated_at_beijing": "2026-11-17 09:57",
   "quote_pipeline": {
     "source": "Yahoo Finance",
     "via": "yfinance"
@@ -1118,7 +1118,7 @@
           "price": 264.32,
           "change_pct": 4.29,
           "date": "2026-11-13",
-          "reason": "杰富瑞上调评级至买入，目标价升至305美元"
+          "reason": "杰富瑞上调至买入，目标价升至305美元"
         },
         {
           "ticker": "GPN",
@@ -1126,7 +1126,7 @@
           "price": 91.9,
           "change_pct": 4.21,
           "date": "2026-11-13",
-          "reason": "私募收购谈判中止后股价超跌反弹"
+          "reason": "私募退出收购谈判后，股价从大跌中反弹"
         }
       ],
       "losers": [
@@ -1136,7 +1136,7 @@
           "price": 534.06,
           "change_pct": -8.75,
           "date": "2026-11-13",
-          "reason": "黄仁勋辞职后市场重估行业风险，芯片股回吐"
+          "reason": "黄仁勋辞职后，芯片股回吐此前涨幅"
         },
         {
           "ticker": "DELL",
@@ -1144,7 +1144,7 @@
           "price": 344.53,
           "change_pct": -7.18,
           "date": "2026-11-13",
-          "reason": "英伟达丑闻外溢，AI服务器板块遭抛售"
+          "reason": "彭博称其服务器所含受限芯片被转至上海"
         },
         {
           "ticker": "CSCO",
@@ -1152,7 +1152,7 @@
           "price": 95.64,
           "change_pct": -6.24,
           "date": "2026-11-13",
-          "reason": "财报后毛利率下滑，机构下调目标价"
+          "reason": "业绩超预期，但毛利率下滑且订单增速放缓"
         }
       ],
       "error": null
@@ -1286,8 +1286,12 @@
     },
     "big_news": [
       {
-        "summary": "英伟达将于美东周二盘后公布黄仁勋辞职后首份财报，焦点转向客户合作与出口风险。",
-        "url": "https://www.reuters.com/business/nvidia-set-deliver-first-life-after-huang-briefing-2026-11-16/"
+        "summary": "英伟达董事会不考虑黄仁勋回归，离任后首份财报将于美东周二盘后公布。",
+        "url": "https://www.reuters.com/legal/transactional/silicon-valley-leaders-back-call-jensen-huangs-return-nvidia-2026-11-16/"
+      },
+      {
+        "summary": "路透称市场预计美联储12月加息25个基点的概率约为95.7%。",
+        "url": "https://www.reuters.com/business/sp-500-nasdaq-futures-slide-nvidia-earnings-anthropic-debut-loom-2026-11-16/"
       }
     ],
     "ai_stale": false,
@@ -1309,8 +1313,12 @@
     "unusual_movers": [],
     "big_news": [
       {
-        "summary": "英伟达将于美东周二盘后公布黄仁勋辞职后首份财报，焦点转向客户合作与出口风险。",
-        "url": "https://www.reuters.com/business/nvidia-set-deliver-first-life-after-huang-briefing-2026-11-16/"
+        "summary": "英伟达董事会不考虑黄仁勋回归，离任后首份财报将于美东周二盘后公布。",
+        "url": "https://www.reuters.com/legal/transactional/silicon-valley-leaders-back-call-jensen-huangs-return-nvidia-2026-11-16/"
+      },
+      {
+        "summary": "路透称市场预计美联储12月加息25个基点的概率约为95.7%。",
+        "url": "https://www.reuters.com/business/sp-500-nasdaq-futures-slide-nvidia-earnings-anthropic-debut-loom-2026-11-16/"
       }
     ],
     "swap_proposal": null,
@@ -1318,51 +1326,51 @@
     "sources": [
       {
         "title": "",
-        "url": "https://www.reuters.com/business/nvidia-set-deliver-first-life-after-huang-briefing-2026-11-16/"
+        "url": "https://www.reuters.com/legal/transactional/silicon-valley-leaders-back-call-jensen-huangs-return-nvidia-2026-11-16/"
       },
       {
-        "title": "https://ng.investing.com/news/stock-market-news/why-is-dell-technologies-stock-sliding-today-93CH-2807107",
-        "url": "https://ng.investing.com/news/stock-market-news/why-is-dell-technologies-stock-sliding-today-93CH-2807107"
+        "title": "",
+        "url": "https://www.reuters.com/business/sp-500-nasdaq-futures-slide-nvidia-earnings-anthropic-debut-loom-2026-11-16/"
       },
       {
-        "title": "https://markets.financialcontent.com/stocks/quote/news?CSSURL=36.htm%C3%83%C2%AF%C3%82%C2%BC%C3%82%C2%9Bhttps%3A%2Fx.com%2Fentrelligence_%2Fstatus%2F1986221463641166225&Symbol=NQ%3ACHTR",
-        "url": "https://markets.financialcontent.com/stocks/quote/news?CSSURL=36.htm%C3%83%C2%AF%C3%82%C2%BC%C3%82%C2%9Bhttps%3A%2Fx.com%2Fentrelligence_%2Fstatus%2F1986221463641166225&Symbol=NQ%3ACHTR"
+        "title": "https://www.tipranks.com/news/the-fly/steris-upgraded-to-buy-from-hold-at-jefferies-thefly-news",
+        "url": "https://www.tipranks.com/news/the-fly/steris-upgraded-to-buy-from-hold-at-jefferies-thefly-news"
       },
       {
-        "title": "https://wallstreettoday.com/movers.html",
-        "url": "https://wallstreettoday.com/movers.html"
+        "title": "https://www.nbd.com.cn/articles/2026-11-16/4649351.html",
+        "url": "https://www.nbd.com.cn/articles/2026-11-16/4649351.html"
       },
       {
-        "title": "https://www.fool.com/investing/2026/11/16/why-amd-stock-was-sliding-today/",
-        "url": "https://www.fool.com/investing/2026/11/16/why-amd-stock-was-sliding-today/"
+        "title": "https://www.benzinga.com/news/26/11/63233585/jefferies-upgrades-steris-buy-raises-price-target-305",
+        "url": "https://www.benzinga.com/news/26/11/63233585/jefferies-upgrades-steris-buy-raises-price-target-305"
       },
       {
-        "title": "https://invezz.com/news/2026/11/16/why-are-amd-and-broadcom-stocks-falling-in-premarket-trading-on-monday/",
-        "url": "https://invezz.com/news/2026/11/16/why-are-amd-and-broadcom-stocks-falling-in-premarket-trading-on-monday/"
+        "title": "https://finance.eastmoney.com/a/202611163931777496.html",
+        "url": "https://finance.eastmoney.com/a/202611163931777496.html"
       },
       {
-        "title": "https://beststocks.com/stocks/chtr/what-changed",
-        "url": "https://beststocks.com/stocks/chtr/what-changed"
+        "title": "https://tradestie.com/stocks/ADBE/earnings-date/",
+        "url": "https://tradestie.com/stocks/ADBE/earnings-date/"
       },
       {
-        "title": "https://www.fxstreet.cz/zpravodajstvi-210605.html",
-        "url": "https://www.fxstreet.cz/zpravodajstvi-210605.html"
+        "title": "https://thedesk.net/2026/11/spectrum-business-cisco-router-networking-product/",
+        "url": "https://thedesk.net/2026/11/spectrum-business-cisco-router-networking-product/"
       },
       {
-        "title": "https://markets.financialcontent.com/stocks/quote/ny:gpn?CSSURL=36.htm%2CIntel",
-        "url": "https://markets.financialcontent.com/stocks/quote/ny:gpn?CSSURL=36.htm%2CIntel"
+        "title": "https://pro.stockalarm.io/quote/CHTR/metric/price",
+        "url": "https://pro.stockalarm.io/quote/CHTR/metric/price"
       },
       {
-        "title": "https://www.prnewswire.com/news-releases/charter-announces-tender-offers-for-eight-series-of-notes-302934959.html",
-        "url": "https://www.prnewswire.com/news-releases/charter-announces-tender-offers-for-eight-series-of-notes-302934959.html"
+        "title": "https://www.tikr.com/blog/charter-soars-11-on-1-5-billion-tender-offer-for-long-dated-notes",
+        "url": "https://www.tikr.com/blog/charter-soars-11-on-1-5-billion-tender-offer-for-long-dated-notes"
       },
       {
-        "title": "https://www.nextearningsdate.com/adbe.html",
-        "url": "https://www.nextearningsdate.com/adbe.html"
+        "title": "https://www.mrjjxw.com/articles/2026-11-16/4649335.html",
+        "url": "https://www.mrjjxw.com/articles/2026-11-16/4649335.html"
       },
       {
-        "title": "https://tickeron.com/blogs/why-is-advanced-micro-devices-amd-stock-down-5-56-today-39309/",
-        "url": "https://tickeron.com/blogs/why-is-advanced-micro-devices-amd-stock-down-5-56-today-39309/"
+        "title": "https://m.21jingji.com/timeline/0f28f69cccc2da09d27adbc752df39d2.html",
+        "url": "https://m.21jingji.com/timeline/0f28f69cccc2da09d27adbc752df39d2.html"
       }
     ]
   },
