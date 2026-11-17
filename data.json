@@ -1,8 +1,12 @@
 {
   "example": false,
   "schema": 2,
-  "updated_at": "2026-11-15T06:17:16Z",
-  "updated_at_beijing": "2026-11-15 14:17",
+  "updated_at": "2026-11-17T01:45:53Z",
+  "updated_at_beijing": "2026-11-17 09:45",
+  "quote_pipeline": {
+    "source": "Yahoo Finance",
+    "via": "yfinance"
+  },
   "watchlist": [
     "NVDA",
     "ADBE",
@@ -32,16 +36,31 @@
       "date": "2026-11-13",
       "currency": "USD",
       "price_label": "收盘",
-      "extended_price": 161.01,
+      "quote_source": "Yahoo Finance",
+      "quote_via": "yfinance",
+      "extended_price": 155.5984,
       "ext_label": "盘后",
-      "ext_change_pct": -1.13,
+      "ext_change_pct": -4.45,
+      "hist_audit": {
+        "symbol": "NVDA",
+        "status": "ordinary",
+        "hide_technical": false,
+        "basis": "split_only_current_share",
+        "dividend_adjusted": false,
+        "source": "未复权 OHLC + 原有坏点/跳变防护",
+        "cutoff": "2026-11-13",
+        "note": "普通标的，不做杠杆 ETF 公司行为专项校验。",
+        "quote_source": "Yahoo Finance",
+        "quote_via": "yfinance"
+      },
+      "atr_suspect": false,
+      "range_note": "普通标的，不做杠杆 ETF 公司行为专项校验。",
+      "atr14": 9.9812,
       "high_52w": 243.37,
       "low_52w": 148.8,
       "high_3m": 243.37,
       "low_3m": 148.8,
-      "high_20d": 222.19,
-      "low_20d": 148.8,
-      "atr14": 11.005
+      "low_20d": 148.8
     },
     "ADBE": {
       "price": 243.08,
@@ -51,16 +70,31 @@
       "date": "2026-11-13",
       "currency": "USD",
       "price_label": "收盘",
-      "extended_price": 241.95,
+      "quote_source": "Yahoo Finance",
+      "quote_via": "yfinance",
+      "extended_price": 248.3666,
       "ext_label": "盘后",
-      "ext_change_pct": -0.46,
+      "ext_change_pct": 2.17,
+      "hist_audit": {
+        "symbol": "ADBE",
+        "status": "ordinary",
+        "hide_technical": false,
+        "basis": "split_only_current_share",
+        "dividend_adjusted": false,
+        "source": "未复权 OHLC + 原有坏点/跳变防护",
+        "cutoff": "2026-11-13",
+        "note": "普通标的，不做杠杆 ETF 公司行为专项校验。",
+        "quote_source": "Yahoo Finance",
+        "quote_via": "yfinance"
+      },
+      "atr_suspect": false,
+      "range_note": "普通标的，不做杠杆 ETF 公司行为专项校验。",
+      "atr14": 8.094,
       "high_52w": 362.71,
       "low_52w": 190.12,
       "high_3m": 294.53,
       "low_3m": 224.67,
-      "high_20d": 272.1,
-      "low_20d": 231.82,
-      "atr14": 7.8357
+      "low_20d": 231.82
     },
     "BRK.B": {
       "price": 592.94,
@@ -70,16 +104,31 @@
       "date": "2026-11-13",
       "currency": "USD",
       "price_label": "收盘",
-      "extended_price": 592.3,
+      "quote_source": "Yahoo Finance",
+      "quote_via": "yfinance",
+      "extended_price": 591.066,
       "ext_label": "盘后",
-      "ext_change_pct": -0.11,
+      "ext_change_pct": -0.32,
+      "hist_audit": {
+        "symbol": "BRK.B",
+        "status": "ordinary",
+        "hide_technical": false,
+        "basis": "split_only_current_share",
+        "dividend_adjusted": false,
+        "source": "未复权 OHLC + 原有坏点/跳变防护",
+        "cutoff": "2026-11-13",
+        "note": "普通标的，不做杠杆 ETF 公司行为专项校验。",
+        "quote_source": "Yahoo Finance",
+        "quote_via": "yfinance"
+      },
+      "atr_suspect": false,
+      "range_note": "普通标的，不做杠杆 ETF 公司行为专项校验。",
+      "atr14": 9.6948,
       "high_52w": 596.92,
       "low_52w": 464.01,
       "high_3m": 596.92,
       "low_3m": 495.68,
-      "high_20d": 596.92,
-      "low_20d": 528.84,
-      "atr14": 11.3521
+      "low_20d": 528.84
     },
     "BRK-B": {
       "price": 592.94,
@@ -89,16 +138,31 @@
       "date": "2026-11-13",
       "currency": "USD",
       "price_label": "收盘",
-      "extended_price": 592.3,
+      "quote_source": "Yahoo Finance",
+      "quote_via": "yfinance",
+      "extended_price": 591.066,
       "ext_label": "盘后",
-      "ext_change_pct": -0.11,
+      "ext_change_pct": -0.32,
+      "hist_audit": {
+        "symbol": "BRK.B",
+        "status": "ordinary",
+        "hide_technical": false,
+        "basis": "split_only_current_share",
+        "dividend_adjusted": false,
+        "source": "未复权 OHLC + 原有坏点/跳变防护",
+        "cutoff": "2026-11-13",
+        "note": "普通标的，不做杠杆 ETF 公司行为专项校验。",
+        "quote_source": "Yahoo Finance",
+        "quote_via": "yfinance"
+      },
+      "atr_suspect": false,
+      "range_note": "普通标的，不做杠杆 ETF 公司行为专项校验。",
+      "atr14": 9.6948,
       "high_52w": 596.92,
       "low_52w": 464.01,
       "high_3m": 596.92,
       "low_3m": 495.68,
-      "high_20d": 596.92,
-      "low_20d": 528.84,
-      "atr14": 11.3521
+      "low_20d": 528.84
     },
     "TQQQ": {
       "price": 57.68,
@@ -108,16 +172,72 @@
       "date": "2026-11-13",
       "currency": "USD",
       "price_label": "收盘",
-      "extended_price": 56.2901,
+      "quote_source": "Yahoo Finance",
+      "quote_via": "yfinance",
+      "extended_price": 53.16,
       "ext_label": "盘后",
-      "ext_change_pct": -2.41,
+      "ext_change_pct": -7.84,
+      "hist_audit": {
+        "symbol": "TQQQ",
+        "basis": "split_only_current_share",
+        "dividend_adjusted": false,
+        "method": "uniform_ohlc_split_only",
+        "atr_method": "wilder14",
+        "hide_technical": false,
+        "sources": [],
+        "status": "verified",
+        "note": "校验通过。拆股后的 ATR 重新起算，仅基于拆股后247个交易日。OHLC 只做拆股复权，不含分红。",
+        "cutoff": "2026-11-13",
+        "atr_seed_date": "2025-11-20",
+        "atr14": 4.4157,
+        "atr_pct": 7.66,
+        "baseline": 57.68,
+        "high_3m": 85.32,
+        "low_3m": 50.25,
+        "low_20d": 50.25,
+        "high_52w": 88.09,
+        "low_52w": 37.32,
+        "post_split_sessions": 247,
+        "atr_label": "仅基于拆股后247个交易日",
+        "source": "未复权 OHLC（不含分红）+ 人工确认表",
+        "formula": "TR=max(H-L,|H-前收|,|L-前收|)；种子=前14个TR的平均；其后 ATR=(前ATR×13+TR)/14",
+        "warmup": "仅基于拆股后247个交易日。不是拿拆股前的 14 天冒充全序列。",
+        "confirmed": [
+          {
+            "date": "2025-11-20",
+            "numerator": 2,
+            "denominator": 1,
+            "direction": "forward",
+            "url": "https://www.proshares.com/press-releases/proshares-announces-etf-share-splits5"
+          }
+        ],
+        "applied_splits": [],
+        "components": {
+          "splits": {
+            "state": "校验通过",
+            "reason": "确认表与行情源一致，且没有重复复权。"
+          },
+          "lookback": {
+            "state": "校验通过",
+            "reason": "高低点用的是同一拆股口径的整段，不拿未对齐的拆股前价格。"
+          },
+          "atr": {
+            "state": "校验通过",
+            "reason": "仅基于拆股后247个交易日"
+          }
+        },
+        "quote_source": "Yahoo Finance",
+        "quote_via": "yfinance"
+      },
+      "atr_suspect": false,
+      "range_note": "校验通过。拆股后的 ATR 重新起算，仅基于拆股后247个交易日。OHLC 只做拆股复权，不含分红。",
+      "atr14": 4.4157,
       "high_52w": 88.09,
       "low_52w": 37.32,
       "high_3m": 85.32,
       "low_3m": 50.25,
-      "high_20d": 73.43,
       "low_20d": 50.25,
-      "atr14": 4.89
+      "high_20d": null
     },
     "SOXL": {
       "price": 58.32,
@@ -127,17 +247,36 @@
       "date": "2026-11-13",
       "currency": "USD",
       "price_label": "收盘",
-      "extended_price": 55.68,
+      "quote_source": "Yahoo Finance",
+      "quote_via": "yfinance",
+      "extended_price": 48.53,
       "ext_label": "盘后",
-      "ext_change_pct": -4.53,
-      "high_52w": 302.0,
-      "low_52w": 28.12,
-      "high_3m": 169.83,
-      "low_3m": 40.59,
-      "high_20d": 108.6,
-      "low_20d": 40.59,
+      "ext_change_pct": -16.79,
+      "hist_audit": {
+        "symbol": "SOXL",
+        "basis": "split_only_current_share",
+        "dividend_adjusted": false,
+        "method": "uniform_ohlc_split_only",
+        "atr_method": "wilder14",
+        "hide_technical": true,
+        "sources": [],
+        "status": "unknown",
+        "note": "未校验。这一窗没有已确认事件，覆盖日也没有证明到窗口最后一天，检查不可用。不能当成没有公司行为，更不是该品种永不拆股。",
+        "components": {
+          "atr": {
+            "state": "未校验",
+            "reason": "覆盖不足"
+          },
+          "lookback": {
+            "state": "未校验",
+            "reason": "覆盖不足"
+          }
+        },
+        "quote_source": "Yahoo Finance",
+        "quote_via": "yfinance"
+      },
       "atr_suspect": true,
-      "range_note": "ATR14 占现价 23%，超过合理范围，已忽略，技术参考改用估算波动。"
+      "range_note": "未校验。这一窗没有已确认事件，覆盖日也没有证明到窗口最后一天，检查不可用。不能当成没有公司行为，更不是该品种永不拆股。"
     },
     "KORU": {
       "price": 7.68,
@@ -147,16 +286,72 @@
       "date": "2026-11-13",
       "currency": "USD",
       "price_label": "收盘",
-      "extended_price": 7.45,
+      "quote_source": "Yahoo Finance",
+      "quote_via": "yfinance",
+      "extended_price": 6.7292,
       "ext_label": "盘后",
-      "ext_change_pct": -2.99,
+      "ext_change_pct": -12.38,
+      "hist_audit": {
+        "symbol": "KORU",
+        "basis": "split_only_current_share",
+        "dividend_adjusted": false,
+        "method": "uniform_ohlc_split_only",
+        "atr_method": "wilder14",
+        "hide_technical": false,
+        "sources": [],
+        "status": "verified",
+        "note": "校验通过。拆股后的 ATR 重新起算，仅基于拆股后87个交易日。OHLC 只做拆股复权，不含分红。",
+        "cutoff": "2026-11-13",
+        "atr_seed_date": "2026-07-15",
+        "atr14": 1.5394,
+        "atr_pct": 20.04,
+        "baseline": 7.68,
+        "high_3m": 25.37,
+        "low_3m": 6.46,
+        "low_20d": 6.46,
+        "high_52w": 63.985,
+        "low_52w": 6.284,
+        "post_split_sessions": 87,
+        "atr_label": "仅基于拆股后87个交易日",
+        "source": "未复权 OHLC（不含分红）+ 人工确认表",
+        "formula": "TR=max(H-L,|H-前收|,|L-前收|)；种子=前14个TR的平均；其后 ATR=(前ATR×13+TR)/14",
+        "warmup": "仅基于拆股后87个交易日。不是拿拆股前的 14 天冒充全序列。",
+        "confirmed": [
+          {
+            "date": "2026-07-15",
+            "numerator": 20,
+            "denominator": 1,
+            "direction": "forward",
+            "url": "https://www.direxion.com/press-release/direxion-to-split-nine-etfs"
+          }
+        ],
+        "applied_splits": [],
+        "components": {
+          "splits": {
+            "state": "校验通过",
+            "reason": "确认表与行情源一致，且没有重复复权。"
+          },
+          "lookback": {
+            "state": "校验通过",
+            "reason": "高低点用的是同一拆股口径的整段，不拿未对齐的拆股前价格。"
+          },
+          "atr": {
+            "state": "校验通过",
+            "reason": "仅基于拆股后87个交易日"
+          }
+        },
+        "quote_source": "Yahoo Finance",
+        "quote_via": "yfinance"
+      },
+      "atr_suspect": false,
+      "range_note": "校验通过。拆股后的 ATR 重新起算，仅基于拆股后87个交易日。OHLC 只做拆股复权，不含分红。",
+      "atr14": 1.5394,
       "high_52w": 63.985,
       "low_52w": 6.284,
       "high_3m": 25.37,
       "low_3m": 6.46,
-      "high_20d": 13.89,
       "low_20d": 6.46,
-      "atr14": 1.5314
+      "high_20d": null
     },
     "QQQM": {
       "price": 279.97,
@@ -166,16 +361,31 @@
       "date": "2026-11-13",
       "currency": "USD",
       "price_label": "收盘",
-      "extended_price": 277.7999,
+      "quote_source": "Yahoo Finance",
+      "quote_via": "yfinance",
+      "extended_price": 272.48,
       "ext_label": "盘后",
-      "ext_change_pct": -0.78,
+      "ext_change_pct": -2.68,
+      "hist_audit": {
+        "symbol": "QQQM",
+        "status": "ordinary",
+        "hide_technical": false,
+        "basis": "split_only_current_share",
+        "dividend_adjusted": false,
+        "source": "未复权 OHLC + 原有坏点/跳变防护",
+        "cutoff": "2026-11-13",
+        "note": "普通标的，不做杠杆 ETF 公司行为专项校验。",
+        "quote_source": "Yahoo Finance",
+        "quote_via": "yfinance"
+      },
+      "atr_suspect": false,
+      "range_note": "普通标的，不做杠杆 ETF 公司行为专项校验。",
+      "atr14": 6.6556,
       "high_52w": 314.115,
       "low_52w": 228.75,
       "high_3m": 314.115,
       "low_3m": 266.52,
-      "high_20d": 299.74,
-      "low_20d": 266.52,
-      "atr14": 7.5664
+      "low_20d": 266.52
     },
     "SCHD": {
       "price": 36.12,
@@ -185,54 +395,75 @@
       "date": "2026-11-13",
       "currency": "USD",
       "price_label": "收盘",
-      "extended_price": 36.0799,
+      "quote_source": "Yahoo Finance",
+      "quote_via": "yfinance",
+      "extended_price": 35.8535,
       "ext_label": "盘后",
-      "ext_change_pct": -0.11,
+      "ext_change_pct": -0.74,
+      "hist_audit": {
+        "symbol": "SCHD",
+        "status": "ordinary",
+        "hide_technical": false,
+        "basis": "split_only_current_share",
+        "dividend_adjusted": false,
+        "source": "未复权 OHLC + 原有坏点/跳变防护",
+        "cutoff": "2026-11-13",
+        "note": "普通标的，不做杠杆 ETF 公司行为专项校验。",
+        "quote_source": "Yahoo Finance",
+        "quote_via": "yfinance"
+      },
+      "atr_suspect": false,
+      "range_note": "普通标的，不做杠杆 ETF 公司行为专项校验。",
+      "atr14": 0.4359,
       "high_52w": 36.38,
       "low_52w": 26.6,
       "high_3m": 36.38,
       "low_3m": 32.36,
-      "high_20d": 36.38,
-      "low_20d": 34.15,
-      "atr14": 0.4764
+      "low_20d": 34.15
     }
   },
   "price_errors": {},
   "indices": {
     "^GSPC": {
-      "price": 7561.6699,
-      "close": 7561.6699,
-      "prev_close": 7592.3999,
-      "change_pct": -0.4,
-      "date": "2026-11-13",
+      "price": 7416.5898,
+      "close": 7416.5898,
+      "prev_close": 7561.6699,
+      "change_pct": -1.92,
+      "date": "2026-11-16",
       "currency": "USD",
       "price_label": "收盘",
+      "quote_source": "Yahoo Finance",
+      "quote_via": "yfinance",
       "name": "标普500"
     },
     "^IXIC": {
-      "price": 25136.2695,
-      "close": 25136.2695,
-      "prev_close": 25366.0898,
-      "change_pct": -0.91,
-      "date": "2026-11-13",
+      "price": 24509.7578,
+      "close": 24509.7578,
+      "prev_close": 25136.2695,
+      "change_pct": -2.49,
+      "date": "2026-11-16",
       "currency": "USD",
       "price_label": "收盘",
+      "quote_source": "Yahoo Finance",
+      "quote_via": "yfinance",
       "name": "纳斯达克"
     },
     "^DJI": {
-      "price": 52347.5508,
-      "close": 52347.5508,
-      "prev_close": 52297.0898,
-      "change_pct": 0.1,
-      "date": "2026-11-13",
+      "price": 51608.1719,
+      "close": 51608.1719,
+      "prev_close": 52347.5508,
+      "change_pct": -1.41,
+      "date": "2026-11-16",
       "currency": "USD",
       "price_label": "收盘",
+      "quote_source": "Yahoo Finance",
+      "quote_via": "yfinance",
       "name": "道琼斯"
     }
   },
   "fx": {
-    "USDCNY": 6.6897,
-    "USDHKD": 7.846,
+    "USDCNY": 6.6793,
+    "USDHKD": 7.847,
     "source": "open.er-api.com"
   },
   "plan": {
@@ -246,7 +477,7 @@
         "kind": "nvda",
         "price": 162.85,
         "close": 162.85,
-        "extended_price": 161.01,
+        "extended_price": 155.5984,
         "ext_label": "盘后",
         "price_label": "收盘",
         "prev_close": 166.19,
@@ -273,37 +504,56 @@
         "low_52w": 148.8,
         "high_3m": 243.37,
         "low_3m": 148.8,
-        "high_20d": 222.19,
+        "high_20d": null,
         "low_20d": 148.8,
-        "atr14": 11.005,
+        "atr14": 9.9812,
         "atr_suspect": false,
-        "data_note": "",
-        "ext_change_pct": -1.13,
+        "hist_audit": {
+          "symbol": "NVDA",
+          "status": "ordinary",
+          "hide_technical": false,
+          "basis": "split_only_current_share",
+          "dividend_adjusted": false,
+          "source": "未复权 OHLC + 原有坏点/跳变防护",
+          "cutoff": "2026-11-13",
+          "note": "普通标的，不做杠杆 ETF 公司行为专项校验。",
+          "quote_source": "Yahoo Finance",
+          "quote_via": "yfinance"
+        },
+        "data_note": "普通标的，不做杠杆 ETF 公司行为专项校验。",
+        "ext_change_pct": -4.45,
         "fixed_sl": null,
         "fixed_tp": [],
         "fixed_asof": "",
         "swapped_in": false,
         "swap_from": "",
         "added": "",
-        "extra_tranches": [
-          99.0
-        ],
+        "extra_tranches": [],
         "tranche_levels": [
           150,
           140,
           125,
-          110,
-          99.0
+          110
         ],
-        "ref_sl": 93.49,
-        "ref_tp": 197.28,
-        "sl_tp_reason": "技术参考（本地按历史价格算，非 AI/新闻）：基准=买点梯子（最深 110.00）；ATR14≈11.01；近三月低/高 148.80/243.37。止损=93.49（基准最低价下 1.5×ATR），止盈=197.28（近三月高点（限在均价上 2~6×ATR））。",
+        "quote_source": "Yahoo Finance",
+        "quote_via": "yfinance",
+        "ref_sl": 95.03,
+        "ref_tp": 191.14,
+        "sl_tp_reason": "技术参考（本地按历史价格算，非 AI/新闻）：基准=买点梯子（最深 110.00）；ATR14≈9.98；近三月低/高 148.80/243.37。止损=95.03（基准最低价下 1.5×ATR），止盈=191.14（近三月高点（限在均价上 2~6×ATR））。",
         "sl_tp_url": "",
         "notes": [
           "在 2026-11-18 财报前只看不买；财报后再按 150 / 140 / 125 / 110 提醒。"
         ],
         "sl_tp_source": "technical",
-        "sl_tp_stale": false
+        "sl_tp_stale": false,
+        "proposed_tranches": [],
+        "ai_ref_sl": null,
+        "ai_ref_tp": null,
+        "exec_sl": null,
+        "exec_tp": [],
+        "exec_sl_src": "",
+        "exec_tp_src": "",
+        "ref_src": "技术参考"
       },
       {
         "symbol": "BRK.B",
@@ -312,7 +562,7 @@
         "kind": "brk",
         "price": 592.94,
         "close": 592.94,
-        "extended_price": 592.3,
+        "extended_price": 591.066,
         "ext_label": "盘后",
         "price_label": "收盘",
         "prev_close": 589.83,
@@ -337,35 +587,52 @@
         "low_52w": 464.01,
         "high_3m": 596.92,
         "low_3m": 495.68,
-        "high_20d": 596.92,
+        "high_20d": null,
         "low_20d": 528.84,
-        "atr14": 11.3521,
+        "atr14": 9.6948,
         "atr_suspect": false,
-        "data_note": "",
-        "ext_change_pct": -0.11,
+        "hist_audit": {
+          "symbol": "BRK.B",
+          "status": "ordinary",
+          "hide_technical": false,
+          "basis": "split_only_current_share",
+          "dividend_adjusted": false,
+          "source": "未复权 OHLC + 原有坏点/跳变防护",
+          "cutoff": "2026-11-13",
+          "note": "普通标的，不做杠杆 ETF 公司行为专项校验。",
+          "quote_source": "Yahoo Finance",
+          "quote_via": "yfinance"
+        },
+        "data_note": "普通标的，不做杠杆 ETF 公司行为专项校验。",
+        "ext_change_pct": -0.32,
         "fixed_sl": null,
         "fixed_tp": [],
         "fixed_asof": "",
         "swapped_in": false,
         "swap_from": "",
         "added": "",
-        "extra_tranches": [
-          518.65,
-          495.68
-        ],
+        "extra_tranches": [],
         "tranche_levels": [
           560,
-          530,
-          518.65,
-          495.68
+          530
         ],
-        "ref_sl": 490.0,
+        "quote_source": "Yahoo Finance",
+        "quote_via": "yfinance",
+        "ref_sl": 490.83,
         "ref_tp": 596.92,
-        "sl_tp_reason": "技术参考（本地按历史价格算，非 AI/新闻）：基准=买点梯子（最深 530.00）；ATR14≈11.35；近三月低/高 495.68/596.92。止损=490.00（近三月低点下 0.5×ATR），止盈=596.92（近三月高点（限在均价上 2~6×ATR））。",
+        "sl_tp_reason": "技术参考（本地按历史价格算，非 AI/新闻）：基准=买点梯子（最深 530.00）；ATR14≈9.69；近三月低/高 495.68/596.92。止损=490.83（近三月低点下 0.5×ATR），止盈=596.92（近三月高点（限在均价上 2~6×ATR））。",
         "sl_tp_url": "",
         "notes": [],
         "sl_tp_source": "technical",
-        "sl_tp_stale": false
+        "sl_tp_stale": false,
+        "proposed_tranches": [],
+        "ai_ref_sl": null,
+        "ai_ref_tp": null,
+        "exec_sl": null,
+        "exec_tp": [],
+        "exec_sl_src": "",
+        "exec_tp_src": "",
+        "ref_src": "技术参考"
       },
       {
         "symbol": "ADBE",
@@ -374,7 +641,7 @@
         "kind": "stock",
         "price": 243.08,
         "close": 243.08,
-        "extended_price": 241.95,
+        "extended_price": 248.3666,
         "ext_label": "盘后",
         "price_label": "收盘",
         "prev_close": 238.54,
@@ -400,36 +667,55 @@
         "low_52w": 190.12,
         "high_3m": 294.53,
         "low_3m": 224.67,
-        "high_20d": 272.1,
+        "high_20d": null,
         "low_20d": 231.82,
-        "atr14": 7.8357,
+        "atr14": 8.094,
         "atr_suspect": false,
-        "data_note": "",
-        "ext_change_pct": -0.46,
+        "hist_audit": {
+          "symbol": "ADBE",
+          "status": "ordinary",
+          "hide_technical": false,
+          "basis": "split_only_current_share",
+          "dividend_adjusted": false,
+          "source": "未复权 OHLC + 原有坏点/跳变防护",
+          "cutoff": "2026-11-13",
+          "note": "普通标的，不做杠杆 ETF 公司行为专项校验。",
+          "quote_source": "Yahoo Finance",
+          "quote_via": "yfinance"
+        },
+        "data_note": "普通标的，不做杠杆 ETF 公司行为专项校验。",
+        "ext_change_pct": 2.17,
         "fixed_sl": null,
         "fixed_tp": [],
         "fixed_asof": "",
         "swapped_in": false,
         "swap_from": "",
         "added": "",
-        "extra_tranches": [
-          182.16
-        ],
+        "extra_tranches": [],
         "tranche_levels": [
           225,
           205,
-          190,
-          182.16
+          190
         ],
-        "ref_sl": 178.25,
-        "ref_tp": 253.68,
-        "sl_tp_reason": "技术参考（本地按历史价格算，非 AI/新闻）：基准=买点梯子（最深 190.00）；ATR14≈7.84；近三月低/高 224.67/294.53。止损=178.25（基准最低价下 1.5×ATR），止盈=253.68（近三月高点（限在均价上 2~6×ATR））。",
+        "quote_source": "Yahoo Finance",
+        "quote_via": "yfinance",
+        "ref_sl": 177.86,
+        "ref_tp": 255.23,
+        "sl_tp_reason": "技术参考（本地按历史价格算，非 AI/新闻）：基准=买点梯子（最深 190.00）；ATR14≈8.09；近三月低/高 224.67/294.53。止损=177.86（基准最低价下 1.5×ATR），止盈=255.23（近三月高点（限在均价上 2~6×ATR））。",
         "sl_tp_url": "",
         "notes": [
           "财报约北京时间 2026-12-10 早上。"
         ],
         "sl_tp_source": "technical",
-        "sl_tp_stale": false
+        "sl_tp_stale": false,
+        "proposed_tranches": [],
+        "ai_ref_sl": null,
+        "ai_ref_tp": null,
+        "exec_sl": null,
+        "exec_tp": [],
+        "exec_sl_src": "",
+        "exec_tp_src": "",
+        "ref_src": "技术参考"
       },
       {
         "symbol": "KORU",
@@ -438,7 +724,7 @@
         "kind": "levered",
         "price": 7.68,
         "close": 7.68,
-        "extended_price": 7.45,
+        "extended_price": 6.7292,
         "ext_label": "盘后",
         "price_label": "收盘",
         "prev_close": 8.12,
@@ -463,12 +749,64 @@
         "low_52w": 6.284,
         "high_3m": 25.37,
         "low_3m": 6.46,
-        "high_20d": 13.89,
+        "high_20d": null,
         "low_20d": 6.46,
-        "atr14": 1.5314,
+        "atr14": 1.5394,
         "atr_suspect": false,
-        "data_note": "",
-        "ext_change_pct": -2.99,
+        "hist_audit": {
+          "symbol": "KORU",
+          "basis": "split_only_current_share",
+          "dividend_adjusted": false,
+          "method": "uniform_ohlc_split_only",
+          "atr_method": "wilder14",
+          "hide_technical": false,
+          "sources": [],
+          "status": "verified",
+          "note": "校验通过。拆股后的 ATR 重新起算，仅基于拆股后87个交易日。OHLC 只做拆股复权，不含分红。",
+          "cutoff": "2026-11-13",
+          "atr_seed_date": "2026-07-15",
+          "atr14": 1.5394,
+          "atr_pct": 20.04,
+          "baseline": 7.68,
+          "high_3m": 25.37,
+          "low_3m": 6.46,
+          "low_20d": 6.46,
+          "high_52w": 63.985,
+          "low_52w": 6.284,
+          "post_split_sessions": 87,
+          "atr_label": "仅基于拆股后87个交易日",
+          "source": "未复权 OHLC（不含分红）+ 人工确认表",
+          "formula": "TR=max(H-L,|H-前收|,|L-前收|)；种子=前14个TR的平均；其后 ATR=(前ATR×13+TR)/14",
+          "warmup": "仅基于拆股后87个交易日。不是拿拆股前的 14 天冒充全序列。",
+          "confirmed": [
+            {
+              "date": "2026-07-15",
+              "numerator": 20,
+              "denominator": 1,
+              "direction": "forward",
+              "url": "https://www.direxion.com/press-release/direxion-to-split-nine-etfs"
+            }
+          ],
+          "applied_splits": [],
+          "components": {
+            "splits": {
+              "state": "校验通过",
+              "reason": "确认表与行情源一致，且没有重复复权。"
+            },
+            "lookback": {
+              "state": "校验通过",
+              "reason": "高低点用的是同一拆股口径的整段，不拿未对齐的拆股前价格。"
+            },
+            "atr": {
+              "state": "校验通过",
+              "reason": "仅基于拆股后87个交易日"
+            }
+          },
+          "quote_source": "Yahoo Finance",
+          "quote_via": "yfinance"
+        },
+        "data_note": "校验通过。拆股后的 ATR 重新起算，仅基于拆股后87个交易日。OHLC 只做拆股复权，不含分红。",
+        "ext_change_pct": -12.38,
         "fixed_sl": 6.0,
         "fixed_tp": [
           8.5,
@@ -478,21 +816,27 @@
         "swapped_in": false,
         "swap_from": "",
         "added": "",
-        "extra_tranches": [
-          4.97
-        ],
+        "extra_tranches": [],
         "tranche_levels": [
           7,
-          6.5,
-          4.97
+          6.5
         ],
-        "ref_sl": 4.2,
-        "ref_tp": 15.94,
-        "sl_tp_reason": "技术参考（本地按历史价格算，非 AI/新闻）：基准=买点梯子（最深 6.50）；ATR14≈1.53；近三月低/高 6.46/25.37。止损=4.20（基准最低价下 1.5×ATR），止盈=15.94（近三月高点（限在均价上 2~6×ATR））。",
+        "quote_source": "Yahoo Finance",
+        "quote_via": "yfinance",
+        "ref_sl": null,
+        "ref_tp": null,
+        "sl_tp_reason": "",
         "sl_tp_url": "",
         "notes": [],
-        "sl_tp_source": "technical",
-        "sl_tp_stale": false
+        "ai_ref_sl": null,
+        "ai_ref_tp": null,
+        "exec_sl": 6.0,
+        "exec_tp": [
+          8.5,
+          10.5
+        ],
+        "exec_sl_src": "已定",
+        "exec_tp_src": "已定"
       },
       {
         "symbol": "TQQQ",
@@ -501,7 +845,7 @@
         "kind": "levered",
         "price": 57.68,
         "close": 57.68,
-        "extended_price": 56.2901,
+        "extended_price": 53.16,
         "ext_label": "盘后",
         "price_label": "收盘",
         "prev_close": 59.88,
@@ -526,12 +870,64 @@
         "low_52w": 37.32,
         "high_3m": 85.32,
         "low_3m": 50.25,
-        "high_20d": 73.43,
+        "high_20d": null,
         "low_20d": 50.25,
-        "atr14": 4.89,
+        "atr14": 4.4157,
         "atr_suspect": false,
-        "data_note": "",
-        "ext_change_pct": -2.41,
+        "hist_audit": {
+          "symbol": "TQQQ",
+          "basis": "split_only_current_share",
+          "dividend_adjusted": false,
+          "method": "uniform_ohlc_split_only",
+          "atr_method": "wilder14",
+          "hide_technical": false,
+          "sources": [],
+          "status": "verified",
+          "note": "校验通过。拆股后的 ATR 重新起算，仅基于拆股后247个交易日。OHLC 只做拆股复权，不含分红。",
+          "cutoff": "2026-11-13",
+          "atr_seed_date": "2025-11-20",
+          "atr14": 4.4157,
+          "atr_pct": 7.66,
+          "baseline": 57.68,
+          "high_3m": 85.32,
+          "low_3m": 50.25,
+          "low_20d": 50.25,
+          "high_52w": 88.09,
+          "low_52w": 37.32,
+          "post_split_sessions": 247,
+          "atr_label": "仅基于拆股后247个交易日",
+          "source": "未复权 OHLC（不含分红）+ 人工确认表",
+          "formula": "TR=max(H-L,|H-前收|,|L-前收|)；种子=前14个TR的平均；其后 ATR=(前ATR×13+TR)/14",
+          "warmup": "仅基于拆股后247个交易日。不是拿拆股前的 14 天冒充全序列。",
+          "confirmed": [
+            {
+              "date": "2025-11-20",
+              "numerator": 2,
+              "denominator": 1,
+              "direction": "forward",
+              "url": "https://www.proshares.com/press-releases/proshares-announces-etf-share-splits5"
+            }
+          ],
+          "applied_splits": [],
+          "components": {
+            "splits": {
+              "state": "校验通过",
+              "reason": "确认表与行情源一致，且没有重复复权。"
+            },
+            "lookback": {
+              "state": "校验通过",
+              "reason": "高低点用的是同一拆股口径的整段，不拿未对齐的拆股前价格。"
+            },
+            "atr": {
+              "state": "校验通过",
+              "reason": "仅基于拆股后247个交易日"
+            }
+          },
+          "quote_source": "Yahoo Finance",
+          "quote_via": "yfinance"
+        },
+        "data_note": "校验通过。拆股后的 ATR 重新起算，仅基于拆股后247个交易日。OHLC 只做拆股复权，不含分红。",
+        "ext_change_pct": -7.84,
         "fixed_sl": 45.0,
         "fixed_tp": [
           60.0,
@@ -541,21 +937,31 @@
         "swapped_in": false,
         "swap_from": "",
         "added": "",
-        "extra_tranches": [
-          45.11
-        ],
+        "extra_tranches": [],
         "tranche_levels": [
           52,
-          50,
-          45.11
+          50
         ],
-        "ref_sl": 42.66,
-        "ref_tp": 80.34,
-        "sl_tp_reason": "技术参考（本地按历史价格算，非 AI/新闻）：基准=买点梯子（最深 50.00）；ATR14≈4.89；近三月低/高 50.25/85.32。止损=42.66（基准最低价下 1.5×ATR），止盈=80.34（近三月高点（限在均价上 2~6×ATR））。",
+        "quote_source": "Yahoo Finance",
+        "quote_via": "yfinance",
+        "ref_sl": 43.38,
+        "ref_tp": 77.49,
+        "sl_tp_reason": "技术参考（本地按历史价格算，非 AI/新闻）：基准=买点梯子（最深 50.00）；ATR14≈4.42；近三月低/高 50.25/85.32。止损=43.38（基准最低价下 1.5×ATR），止盈=77.49（近三月高点（限在均价上 2~6×ATR））。",
         "sl_tp_url": "",
         "notes": [],
         "sl_tp_source": "technical",
-        "sl_tp_stale": false
+        "sl_tp_stale": false,
+        "proposed_tranches": [],
+        "ai_ref_sl": null,
+        "ai_ref_tp": null,
+        "exec_sl": 45.0,
+        "exec_tp": [
+          60.0,
+          68.0
+        ],
+        "exec_sl_src": "已定",
+        "exec_tp_src": "已定",
+        "ref_src": "技术参考"
       },
       {
         "symbol": "SOXL",
@@ -564,7 +970,7 @@
         "kind": "levered",
         "price": 58.32,
         "close": 58.32,
-        "extended_price": 55.68,
+        "extended_price": 48.53,
         "ext_label": "盘后",
         "price_label": "收盘",
         "prev_close": 65.53,
@@ -585,16 +991,39 @@
         "newly_touched": [],
         "at_buy": false,
         "sort_gap_pct": 19.4102,
-        "high_52w": 302.0,
-        "low_52w": 28.12,
-        "high_3m": 169.83,
-        "low_3m": 40.59,
-        "high_20d": 108.6,
-        "low_20d": 40.59,
+        "high_52w": null,
+        "low_52w": null,
+        "high_3m": null,
+        "low_3m": null,
+        "high_20d": null,
+        "low_20d": null,
         "atr14": null,
         "atr_suspect": true,
-        "data_note": "ATR14 占现价 23%，超过合理范围，已忽略，技术参考改用估算波动。",
-        "ext_change_pct": -4.53,
+        "hist_audit": {
+          "symbol": "SOXL",
+          "basis": "split_only_current_share",
+          "dividend_adjusted": false,
+          "method": "uniform_ohlc_split_only",
+          "atr_method": "wilder14",
+          "hide_technical": true,
+          "sources": [],
+          "status": "unknown",
+          "note": "未校验。这一窗没有已确认事件，覆盖日也没有证明到窗口最后一天，检查不可用。不能当成没有公司行为，更不是该品种永不拆股。",
+          "components": {
+            "atr": {
+              "state": "未校验",
+              "reason": "覆盖不足"
+            },
+            "lookback": {
+              "state": "未校验",
+              "reason": "覆盖不足"
+            }
+          },
+          "quote_source": "Yahoo Finance",
+          "quote_via": "yfinance"
+        },
+        "data_note": "未校验。这一窗没有已确认事件，覆盖日也没有证明到窗口最后一天，检查不可用。不能当成没有公司行为，更不是该品种永不拆股。",
+        "ext_change_pct": -16.79,
         "fixed_sl": 38.0,
         "fixed_tp": [
           60.0,
@@ -604,21 +1033,29 @@
         "swapped_in": false,
         "swap_from": "",
         "added": "",
-        "extra_tranches": [
-          36.92
-        ],
+        "extra_tranches": [],
         "tranche_levels": [
           47,
-          41,
-          36.92
+          41
         ],
-        "ref_sl": 34.88,
-        "ref_tp": 68.49,
-        "sl_tp_reason": "技术参考（本地按历史价格算，非 AI/新闻）：基准=买点梯子（最深 41.00）；ATR14≈4.08（估算）；近三月低/高 40.59/169.83。止损=34.88（基准最低价下 1.5×ATR），止盈=68.49（近三月高点（限在均价上 2~6×ATR））。",
+        "quote_source": "Yahoo Finance",
+        "quote_via": "yfinance",
+        "ref_sl": null,
+        "ref_tp": null,
+        "sl_tp_reason": "未校验。这一窗没有已确认事件，覆盖日也没有证明到窗口最后一天，检查不可用。不能当成没有公司行为，更不是该品种永不拆股。",
         "sl_tp_url": "",
         "notes": [],
-        "sl_tp_source": "technical",
-        "sl_tp_stale": false
+        "proposed_tranches": [],
+        "sl_tp_stale": false,
+        "ai_ref_sl": null,
+        "ai_ref_tp": null,
+        "exec_sl": 38.0,
+        "exec_tp": [
+          60.0,
+          75.0
+        ],
+        "exec_sl_src": "已定",
+        "exec_tp_src": "已定"
       }
     ],
     "dca": [
@@ -627,12 +1064,12 @@
         "name": "纳指100 ETF",
         "price": 279.97,
         "close": 279.97,
-        "extended_price": 277.7999,
+        "extended_price": 272.48,
         "ext_label": "盘后",
         "price_label": "收盘",
         "prev_close": 283.39,
         "change_pct": -1.21,
-        "ext_change_pct": -0.78,
+        "ext_change_pct": -2.68,
         "date": "2026-11-13",
         "currency": "USD",
         "stale": false,
@@ -643,12 +1080,12 @@
         "name": "美国红利 ETF",
         "price": 36.12,
         "close": 36.12,
-        "extended_price": 36.0799,
+        "extended_price": 35.8535,
         "ext_label": "盘后",
         "price_label": "收盘",
         "prev_close": 35.93,
         "change_pct": 0.53,
-        "ext_change_pct": -0.11,
+        "ext_change_pct": -0.74,
         "date": "2026-11-13",
         "currency": "USD",
         "stale": false,
@@ -681,7 +1118,7 @@
           "price": 264.32,
           "change_pct": 4.29,
           "date": "2026-11-13",
-          "reason": "杰富瑞上调至买入，目标价由232美元提至305美元"
+          "reason": "杰富瑞上调评级至买入，目标价升至305美元"
         },
         {
           "ticker": "GPN",
@@ -689,7 +1126,7 @@
           "price": 91.9,
           "change_pct": 4.21,
           "date": "2026-11-13",
-          "reason": "私募买方退出收购后，股价自前日大跌中反弹"
+          "reason": "私募收购谈判中止后股价超跌反弹"
         }
       ],
       "losers": [
@@ -699,7 +1136,7 @@
           "price": 534.06,
           "change_pct": -8.75,
           "date": "2026-11-13",
-          "reason": "英伟达换帅后芯片股遭抛售，回吐本周涨幅"
+          "reason": "黄仁勋辞职后市场重估行业风险，芯片股回吐"
         },
         {
           "ticker": "DELL",
@@ -707,7 +1144,7 @@
           "price": 344.53,
           "change_pct": -7.18,
           "date": "2026-11-13",
-          "reason": "报道称搭载受限芯片的戴尔服务器流入上海"
+          "reason": "英伟达丑闻外溢，AI服务器板块遭抛售"
         },
         {
           "ticker": "CSCO",
@@ -715,7 +1152,7 @@
           "price": 95.64,
           "change_pct": -6.24,
           "date": "2026-11-13",
-          "reason": "财报超预期，但毛利率同比下降约2.5个百分点"
+          "reason": "财报后毛利率下滑，机构下调目标价"
         }
       ],
       "error": null
@@ -811,75 +1248,46 @@
     "dropped": [],
     "levels_advice": {
       "NVDA": {
-        "stop_loss": 93.49,
-        "take_profit": 197.28,
-        "extra_tranches": [
-          99.0
-        ],
-        "reason": "技术参考（本地按历史价格算，非 AI/新闻）：基准=买点梯子（最深 110.00）；ATR14≈11.01；近三月低/高 148.80/243.37。止损=93.49（基准最低价下 1.5×ATR），止盈=197.28（近三月高点（限在均价上 2~6×ATR））。",
+        "stop_loss": 95.03,
+        "take_profit": 191.14,
+        "extra_tranches": [],
+        "executable_tranches": false,
+        "reason": "技术参考（本地按历史价格算，非 AI/新闻）：基准=买点梯子（最深 110.00）；ATR14≈9.98；近三月低/高 148.80/243.37。止损=95.03（基准最低价下 1.5×ATR），止盈=191.14（近三月高点（限在均价上 2~6×ATR））。",
         "url": "",
         "source": "technical"
       },
       "ADBE": {
-        "stop_loss": 178.25,
-        "take_profit": 253.68,
-        "extra_tranches": [
-          182.16
-        ],
-        "reason": "技术参考（本地按历史价格算，非 AI/新闻）：基准=买点梯子（最深 190.00）；ATR14≈7.84；近三月低/高 224.67/294.53。止损=178.25（基准最低价下 1.5×ATR），止盈=253.68（近三月高点（限在均价上 2~6×ATR））。",
+        "stop_loss": 177.86,
+        "take_profit": 255.23,
+        "extra_tranches": [],
+        "executable_tranches": false,
+        "reason": "技术参考（本地按历史价格算，非 AI/新闻）：基准=买点梯子（最深 190.00）；ATR14≈8.09；近三月低/高 224.67/294.53。止损=177.86（基准最低价下 1.5×ATR），止盈=255.23（近三月高点（限在均价上 2~6×ATR））。",
         "url": "",
         "source": "technical"
       },
       "BRK.B": {
-        "stop_loss": 490.0,
+        "stop_loss": 490.83,
         "take_profit": 596.92,
-        "extra_tranches": [
-          518.65,
-          495.68
-        ],
-        "reason": "技术参考（本地按历史价格算，非 AI/新闻）：基准=买点梯子（最深 530.00）；ATR14≈11.35；近三月低/高 495.68/596.92。止损=490.00（近三月低点下 0.5×ATR），止盈=596.92（近三月高点（限在均价上 2~6×ATR））。",
+        "extra_tranches": [],
+        "executable_tranches": false,
+        "reason": "技术参考（本地按历史价格算，非 AI/新闻）：基准=买点梯子（最深 530.00）；ATR14≈9.69；近三月低/高 495.68/596.92。止损=490.83（近三月低点下 0.5×ATR），止盈=596.92（近三月高点（限在均价上 2~6×ATR））。",
         "url": "",
         "source": "technical"
       },
       "TQQQ": {
-        "stop_loss": 42.66,
-        "take_profit": 80.34,
-        "extra_tranches": [
-          45.11
-        ],
-        "reason": "技术参考（本地按历史价格算，非 AI/新闻）：基准=买点梯子（最深 50.00）；ATR14≈4.89；近三月低/高 50.25/85.32。止损=42.66（基准最低价下 1.5×ATR），止盈=80.34（近三月高点（限在均价上 2~6×ATR））。",
-        "url": "",
-        "source": "technical"
-      },
-      "SOXL": {
-        "stop_loss": 34.88,
-        "take_profit": 68.49,
-        "extra_tranches": [
-          36.92
-        ],
-        "reason": "技术参考（本地按历史价格算，非 AI/新闻）：基准=买点梯子（最深 41.00）；ATR14≈4.08（估算）；近三月低/高 40.59/169.83。止损=34.88（基准最低价下 1.5×ATR），止盈=68.49（近三月高点（限在均价上 2~6×ATR））。",
-        "url": "",
-        "source": "technical"
-      },
-      "KORU": {
-        "stop_loss": 4.2,
-        "take_profit": 15.94,
-        "extra_tranches": [
-          4.97
-        ],
-        "reason": "技术参考（本地按历史价格算，非 AI/新闻）：基准=买点梯子（最深 6.50）；ATR14≈1.53；近三月低/高 6.46/25.37。止损=4.20（基准最低价下 1.5×ATR），止盈=15.94（近三月高点（限在均价上 2~6×ATR））。",
+        "stop_loss": 43.38,
+        "take_profit": 77.49,
+        "extra_tranches": [],
+        "executable_tranches": false,
+        "reason": "技术参考（本地按历史价格算，非 AI/新闻）：基准=买点梯子（最深 50.00）；ATR14≈4.42；近三月低/高 50.25/85.32。止损=43.38（基准最低价下 1.5×ATR），止盈=77.49（近三月高点（限在均价上 2~6×ATR））。",
         "url": "",
         "source": "technical"
       }
     },
     "big_news": [
       {
-        "summary": "英伟达宣布黄仁勋辞去首席执行官，首席财务官科莱特·克雷斯出任临时首席执行官。",
-        "url": "https://nvidianews.nvidia.com/news/nvidia-announces-ceo-transition"
-      },
-      {
-        "summary": "美国10月生产者价格指数同比上涨6.5%，为近四年来最高，市场继续计入12月加息。",
-        "url": "https://www.cnbc.com/2026/11/13/ppi-inflation-report-october-2026.html"
+        "summary": "英伟达将于美东周二盘后公布黄仁勋辞职后首份财报，焦点转向客户合作与出口风险。",
+        "url": "https://www.reuters.com/business/nvidia-set-deliver-first-life-after-huang-briefing-2026-11-16/"
       }
     ],
     "ai_stale": false,
@@ -893,7 +1301,7 @@
   },
   "radar": {
     "market_summary": {
-      "headline": "标普500 -0.40%；纳斯达克 -0.91%；道琼斯 +0.10%",
+      "headline": "标普500 -1.92%；纳斯达克 -2.49%；道琼斯 -1.41%",
       "overview": "",
       "macro": []
     },
@@ -901,12 +1309,8 @@
     "unusual_movers": [],
     "big_news": [
       {
-        "summary": "英伟达宣布黄仁勋辞去首席执行官，首席财务官科莱特·克雷斯出任临时首席执行官。",
-        "url": "https://nvidianews.nvidia.com/news/nvidia-announces-ceo-transition"
-      },
-      {
-        "summary": "美国10月生产者价格指数同比上涨6.5%，为近四年来最高，市场继续计入12月加息。",
-        "url": "https://www.cnbc.com/2026/11/13/ppi-inflation-report-october-2026.html"
+        "summary": "英伟达将于美东周二盘后公布黄仁勋辞职后首份财报，焦点转向客户合作与出口风险。",
+        "url": "https://www.reuters.com/business/nvidia-set-deliver-first-life-after-huang-briefing-2026-11-16/"
       }
     ],
     "swap_proposal": null,
@@ -914,55 +1318,55 @@
     "sources": [
       {
         "title": "",
-        "url": "https://nvidianews.nvidia.com/news/nvidia-announces-ceo-transition"
-      },
-      {
-        "title": "",
-        "url": "https://www.cnbc.com/2026/11/13/ppi-inflation-report-october-2026.html"
-      },
-      {
-        "title": "https://www.stocktitan.net/articles/stock-market-today-live-november-13-2026",
-        "url": "https://www.stocktitan.net/articles/stock-market-today-live-november-13-2026"
-      },
-      {
-        "title": "https://www.chartmill.com/news/AMD/Chartmill-58672-SP-500-Gap-Down-Stocks-in-the-Nov-13-Session",
-        "url": "https://www.chartmill.com/news/AMD/Chartmill-58672-SP-500-Gap-Down-Stocks-in-the-Nov-13-Session"
-      },
-      {
-        "title": "https://www.intelligentinvestor.com.au/shares/nasdaq-chtr/charter-communications",
-        "url": "https://www.intelligentinvestor.com.au/shares/nasdaq-chtr/charter-communications"
-      },
-      {
-        "title": "https://www.investing.com/news/stock-market-news/why-is-cisco-stock-sliding-today-93CH-5024605",
-        "url": "https://www.investing.com/news/stock-market-news/why-is-cisco-stock-sliding-today-93CH-5024605"
-      },
-      {
-        "title": "https://www.reuters.com/world/china/factbox-chinas-3-billion-plus-pipeline-nvidia-powered-ai-data-centres-2026-11-13/",
-        "url": "https://www.reuters.com/world/china/factbox-chinas-3-billion-plus-pipeline-nvidia-powered-ai-data-centres-2026-11-13/"
-      },
-      {
-        "title": "https://stockanalysis.com/stocks/csco/",
-        "url": "https://stockanalysis.com/stocks/csco/"
+        "url": "https://www.reuters.com/business/nvidia-set-deliver-first-life-after-huang-briefing-2026-11-16/"
       },
       {
         "title": "https://ng.investing.com/news/stock-market-news/why-is-dell-technologies-stock-sliding-today-93CH-2807107",
         "url": "https://ng.investing.com/news/stock-market-news/why-is-dell-technologies-stock-sliding-today-93CH-2807107"
       },
       {
-        "title": "https://k.sina.cn/article_5952915705_162d248f906703t5hk.html?vt=4&from=finance",
-        "url": "https://k.sina.cn/article_5952915705_162d248f906703t5hk.html?vt=4&from=finance"
+        "title": "https://markets.financialcontent.com/stocks/quote/news?CSSURL=36.htm%C3%83%C2%AF%C3%82%C2%BC%C3%82%C2%9Bhttps%3A%2Fx.com%2Fentrelligence_%2Fstatus%2F1986221463641166225&Symbol=NQ%3ACHTR",
+        "url": "https://markets.financialcontent.com/stocks/quote/news?CSSURL=36.htm%C3%83%C2%AF%C3%82%C2%BC%C3%82%C2%9Bhttps%3A%2Fx.com%2Fentrelligence_%2Fstatus%2F1986221463641166225&Symbol=NQ%3ACHTR"
       },
       {
-        "title": "https://www.reuters.com/world/cdr-gtcr-drop-pursuit-global-payments-sources-say-2026-11-12/",
-        "url": "https://www.reuters.com/world/cdr-gtcr-drop-pursuit-global-payments-sources-say-2026-11-12/"
+        "title": "https://wallstreettoday.com/movers.html",
+        "url": "https://wallstreettoday.com/movers.html"
       },
       {
-        "title": "https://news.alphastreet.com/dell-technologies-drops-7-8-amid-sector-wide-selling/",
-        "url": "https://news.alphastreet.com/dell-technologies-drops-7-8-amid-sector-wide-selling/"
+        "title": "https://www.fool.com/investing/2026/11/16/why-amd-stock-was-sliding-today/",
+        "url": "https://www.fool.com/investing/2026/11/16/why-amd-stock-was-sliding-today/"
+      },
+      {
+        "title": "https://invezz.com/news/2026/11/16/why-are-amd-and-broadcom-stocks-falling-in-premarket-trading-on-monday/",
+        "url": "https://invezz.com/news/2026/11/16/why-are-amd-and-broadcom-stocks-falling-in-premarket-trading-on-monday/"
+      },
+      {
+        "title": "https://beststocks.com/stocks/chtr/what-changed",
+        "url": "https://beststocks.com/stocks/chtr/what-changed"
+      },
+      {
+        "title": "https://www.fxstreet.cz/zpravodajstvi-210605.html",
+        "url": "https://www.fxstreet.cz/zpravodajstvi-210605.html"
+      },
+      {
+        "title": "https://markets.financialcontent.com/stocks/quote/ny:gpn?CSSURL=36.htm%2CIntel",
+        "url": "https://markets.financialcontent.com/stocks/quote/ny:gpn?CSSURL=36.htm%2CIntel"
+      },
+      {
+        "title": "https://www.prnewswire.com/news-releases/charter-announces-tender-offers-for-eight-series-of-notes-302934959.html",
+        "url": "https://www.prnewswire.com/news-releases/charter-announces-tender-offers-for-eight-series-of-notes-302934959.html"
+      },
+      {
+        "title": "https://www.nextearningsdate.com/adbe.html",
+        "url": "https://www.nextearningsdate.com/adbe.html"
+      },
+      {
+        "title": "https://tickeron.com/blogs/why-is-advanced-micro-devices-amd-stock-down-5-56-today-39309/",
+        "url": "https://tickeron.com/blogs/why-is-advanced-micro-devices-amd-stock-down-5-56-today-39309/"
       }
     ]
   },
-  "radar_date": "2026-11-15",
+  "radar_date": "2026-11-17",
   "radar_stale": false,
   "ai": {
     "provider": "grok",
